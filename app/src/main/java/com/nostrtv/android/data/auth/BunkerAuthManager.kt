@@ -53,7 +53,7 @@ class BunkerAuthManager(
 ) {
     companion object {
         private const val TAG = "BunkerAuthManager"
-        private const val DEFAULT_RELAY = "wss://relay.nsec.app"
+        private const val DEFAULT_RELAY = "wss://relay.primal.net"
         private const val CONNECTION_TIMEOUT_MS = 120000L // 2 minutes for user to scan
         private const val REQUEST_TIMEOUT_MS = 30000L
         private const val KIND_NIP46 = 24133
@@ -104,8 +104,8 @@ class BunkerAuthManager(
 
         val clientPubkey = clientKeyPair!!.publicKey
 
-        // Build connection URI
-        // Format: nostr+connect://<client-pubkey>?relay=<relay>&secret=<secret>
+        // Build connection URI per NIP-46
+        // Format: nostr+connect://<client-pubkey>?relay=<relay>&secret=<secret>&name=<app-name>
         val connectionUri = buildString {
             append("nostr+connect://")
             append(clientPubkey)
@@ -113,6 +113,8 @@ class BunkerAuthManager(
             append(java.net.URLEncoder.encode(relayUrl, "UTF-8"))
             append("&secret=")
             append(secret)
+            append("&name=")
+            append(java.net.URLEncoder.encode("nostrTV", "UTF-8"))
         }
 
         _connectionString.value = connectionUri
@@ -120,8 +122,10 @@ class BunkerAuthManager(
 
         Log.d(TAG, "Generated connection URI: $connectionUri")
         Log.d(TAG, "Client pubkey: $clientPubkey")
+        Log.d(TAG, "Relay: $relayUrl")
+        Log.d(TAG, "Secret: ${secret?.take(8)}...")
 
-        // Start listening for connection
+        // Start listening for connection - QR will show once connected
         startListening()
 
         return connectionUri
