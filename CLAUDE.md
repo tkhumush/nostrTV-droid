@@ -174,6 +174,98 @@ Each checkpoint: manually test, commit, include short PR description.
 - [x] QR invoice display
 - [x] Zap receipt detection
 
+## Phase 2 Feature Roadmap
+
+### Priority Order (with dependencies)
+
+| # | Feature | Branch | Dependencies | Status |
+|---|---------|--------|--------------|--------|
+| 1 | NIP-46 Remote Sign-in | `feature/nip46-auth` | None | Pending |
+| 2 | User Profile Page | `feature/user-profile` | #1 | Pending |
+| 3 | Admin Curated Streams | `feature/curated-streams` | None | Pending |
+| 4 | Following Section | `feature/following` | #1, #3 | Pending |
+| 5 | Stream Card Thumbnails | `feature/thumbnails` | None | Pending |
+| 6 | Chat Manager (Read) | `feature/chat-read` | None | Pending |
+| 7 | Chat Send | `feature/chat-send` | #1, #6 | Pending |
+| 8 | Presence Events | `feature/presence` | #1 | Pending |
+| 9 | Zap Chyron | `feature/zap-chyron` | None | Pending |
+| 10 | Streamer Profile + Zap Flow | `feature/zap-flow` | #1 | Pending |
+
+### Feature Details
+
+#### 1. NIP-46 Remote Sign-in Flow
+- QR code display with `nostr+connect://` or `bunker://` URI
+- WebSocket connection to bunker relay (wss://relay.nsec.app)
+- Handle NIP-46 request/response protocol
+- Store session securely (EncryptedSharedPreferences)
+- Auto-restore session on app launch
+
+#### 2. User Profile Page
+- Display signed-in user's profile (name, picture, npub)
+- Logout button to clear session
+- Navigate from home screen header
+
+#### 3. Admin Curated Streams
+- Hardcoded admin pubkey (configurable)
+- Fetch admin's follow list (kind 3)
+- Filter streams to only show those from followed pubkeys
+- "Curated" tab on home screen for guest users
+
+#### 4. Following Section
+- "Following" tab on home screen (requires auth)
+- Fetch logged-in user's follow list (kind 3)
+- Filter streams to show only followed streamers
+- Prompt sign-in if not authenticated
+
+#### 5. Stream Card Thumbnails
+- Parse `image` or `thumb` tag from kind 30311
+- Display thumbnail in stream cards using Coil
+- Fallback placeholder for missing thumbnails
+
+#### 6. Chat Manager (Read)
+- Subscribe to kind 1 events with `a` tag matching stream
+- Real-time message display with author profiles
+- Auto-scroll with manual scroll detection
+- Message deduplication
+
+#### 7. Chat Send
+- Text input field below chat
+- Sign message via NIP-46 bunker
+- Publish to relays
+- Optimistic UI update
+
+#### 8. Presence Events
+- Send kind 10312 on stream join (NIP-53)
+- Include `a` tag referencing stream
+- Send empty/leave event on stream exit
+- Requires authentication
+
+#### 9. Zap Chyron
+- Subscribe to kind 9735 (zap receipts) for stream
+- Display scrolling ticker of recent 10 zaps
+- Show sender name + amount
+- Position at bottom of player screen
+
+#### 10. Streamer Profile + Zap Flow
+- Click streamer name → open profile modal
+- Display streamer info (name, picture, about, follower count)
+- Zap presets with friendly labels:
+  - 21 sats - "Nice!"
+  - 100 sats - "Great stream!"
+  - 500 sats - "Buy a coffee"
+  - 1000 sats - "Buy lunch"
+  - 2100 sats - "Buy a pizza"
+- Generate zap request (kind 9734) via bunker
+- Display Lightning invoice QR
+- Poll for zap receipt confirmation
+
+### Admin Configuration
+
+```kotlin
+// Admin pubkey for curated streams (to be configured)
+const val ADMIN_PUBKEY = "YOUR_ADMIN_PUBKEY_HERE"
+```
+
 ## Non-Goals
 
 - No Firebase
