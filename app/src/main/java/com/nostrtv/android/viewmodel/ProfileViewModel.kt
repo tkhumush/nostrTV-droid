@@ -23,40 +23,51 @@ class ProfileViewModel(
 
     val authState: StateFlow<AuthState> = bunkerAuthManager.authState
     val connectionString: StateFlow<String?> = bunkerAuthManager.connectionString
+    val userPubkey: StateFlow<String?> = bunkerAuthManager.userPubkey
 
-    init {
-        // Try to restore existing session
-        bunkerAuthManager.restoreSession()
-    }
-
+    /**
+     * Start the NIP-46 login flow.
+     * Generates a connection URI for QR code display.
+     */
     fun startLogin() {
         Log.d(TAG, "Starting bunker login flow")
-        bunkerAuthManager.generateConnectionString()
+        bunkerAuthManager.startLogin()
     }
 
+    /**
+     * Cancel the pending login attempt.
+     */
     fun cancelLogin() {
         Log.d(TAG, "Canceling login")
-        bunkerAuthManager.logout()
+        bunkerAuthManager.cancelLogin()
     }
 
-    fun connectWithBunkerUri(uri: String) {
-        viewModelScope.launch {
-            bunkerAuthManager.connectWithBunkerUri(uri)
-        }
-    }
-
+    /**
+     * Logout and clear session.
+     */
     fun logout() {
         Log.d(TAG, "Logging out")
         bunkerAuthManager.logout()
     }
 
+    /**
+     * Check if user is authenticated.
+     */
     fun isAuthenticated(): Boolean {
         return authState.value is AuthState.Authenticated
     }
 
+    /**
+     * Get the authenticated user's public key.
+     */
     fun getUserPubkey(): String? {
         return (authState.value as? AuthState.Authenticated)?.pubkey
     }
+
+    /**
+     * Get the BunkerAuthManager for signing events.
+     */
+    fun getAuthManager(): BunkerAuthManager = bunkerAuthManager
 
     class Factory(private val context: Context) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
