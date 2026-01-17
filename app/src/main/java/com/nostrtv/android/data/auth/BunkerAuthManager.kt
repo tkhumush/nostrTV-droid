@@ -105,9 +105,9 @@ class BunkerAuthManager(
         val clientPubkey = clientKeyPair!!.publicKey
 
         // Build connection URI per NIP-46
-        // Format: nostr+connect://<client-pubkey>?relay=<relay>&secret=<secret>&name=<app-name>
+        // Format: nostrconnect://<client-pubkey>?relay=<relay>&secret=<secret>&name=<app-name>
         val connectionUri = buildString {
-            append("nostr+connect://")
+            append("nostrconnect://")
             append(clientPubkey)
             append("?relay=")
             append(java.net.URLEncoder.encode(relayUrl, "UTF-8"))
@@ -205,14 +205,11 @@ class BunkerAuthManager(
         val clientKeyPair = this.clientKeyPair ?: return
 
         Log.d(TAG, "Received NIP-46 event from: ${event.pubkey}")
+        Log.d(TAG, "Event content (first 100 chars): ${event.content.take(100)}")
 
         try {
-            // Decrypt the content using NIP-04
-            val decrypted = NostrCrypto.decryptNip04(
-                event.content,
-                clientKeyPair.privateKey,
-                event.pubkey
-            )
+            // Try to detect encryption type and decrypt
+            val decrypted = tryDecrypt(event.content, clientKeyPair.privateKey, event.pubkey)
 
             Log.d(TAG, "Decrypted NIP-46 message: $decrypted")
 
@@ -289,8 +286,8 @@ class BunkerAuthManager(
 
         Log.d(TAG, "Sending NIP-46 request: $requestJson")
 
-        // Encrypt with NIP-04
-        val encrypted = NostrCrypto.encryptNip04(
+        // Encrypt with NIP-44 (required by NIP-46 spec)
+        val encrypted = NostrCrypto.encryptNip44(
             requestJson,
             clientKeyPair.privateKey,
             bunkerPubkey
@@ -428,6 +425,21 @@ class BunkerAuthManager(
         val bytes = ByteArray(32)
         secureRandom.nextBytes(bytes)
         return bytes.toHex()
+    }
+
+    /**
+     * Try to decrypt content using NIP-04 first, then NIP-44 if that fails.
+     */
+    private fun tryDecrypt(content: String, privateKey: String, senderPubkey: String): String {
+        // Check if it looks like NIP-04 format (contains ?iv=)
+        if (content.contains("?iv=")) {
+            Log.d(TAG, "Content appears to be NIP-04 encrypted")
+            return NostrCrypto.decryptNip04(content, privateKey, senderPubkey)
+        }
+
+        // Otherwise try NIP-44 (base64 encoded, no ?iv=)
+        Log.d(TAG, "Content appears to be NIP-44 encrypted, attempting NIP-44 decryption")
+        return NostrCrypto.decryptNip44(content, privateKey, senderPubkey)
     }
 }
 
