@@ -217,7 +217,7 @@ Each checkpoint: manually test, commit, include short PR description.
 | 3 | Admin Curated Streams | `feature/curated-streams` | None | Pending |
 | 4 | Following Section | `feature/following` | #1, #3 | Pending |
 | 5 | Stream Card Thumbnails | `feature/stream-thumbnails` | None | **Done** |
-| 6 | Chat Manager (Read) | `feature/chat-read` | None | Pending |
+| 6 | Chat Manager (Read) | `feature/chat-read` | None | **Done** |
 | 7 | Chat Send | `feature/chat-send` | #1, #6 | Pending |
 | 8 | Presence Events | `feature/presence` | #1 | Pending |
 | 9 | Zap Chyron | `feature/zap-chyron` | None | **Done** |
@@ -255,10 +255,11 @@ Each checkpoint: manually test, commit, include short PR description.
 - Fallback placeholder for missing thumbnails
 
 #### 6. Chat Manager (Read)
-- Subscribe to kind 1 events with `a` tag matching stream
-- Real-time message display with author profiles
+- Subscribe to kind 1311 (NIP-53 live chat) events with `a` tag matching stream
+- Combined subscription with zap receipts (kind 9735) for efficiency
+- Real-time message display with author profiles and avatars
 - Auto-scroll with manual scroll detection
-- Message deduplication
+- Message deduplication and profile enrichment
 
 #### 7. Chat Send
 - Text input field below chat
@@ -318,33 +319,28 @@ Building a **TV-first, decentralized media client**. Proceed incrementally.
 
 ## Session Notes
 
-### Last Session (Jan 17, 2025)
+### Last Session (Jan 18, 2025)
 **Branch:** `main`
-**PRs:** #1, #2, #3 (all merged)
+**PRs:** #4 (merged)
 
 **Completed:**
-- Zap Chyron feature (PR #2)
-  - Kind 9735 zap receipt parsing with sender profile enrichment
-  - Single zap display with 3-second cycling animation
-  - Format: ⚡ [pic] **Name** zapped the stream **X sats** and said: message
-  - Left-aligned, vertically centered, 48dp height
-- Stream View layout restructure (PR #3)
-  - Stream Info Header moved above video (clickable, TV focus support)
-  - Zap Chyron moved below video (non-overlapping)
-  - 83%/17% width ratio for video/chat areas
-  - Chat header with hide/show toggle button
-  - Chat footer with text input, send button, cancel button
-  - Added material-icons-extended dependency
-- Added End of Session Routine to CLAUDE.md
+- Chat Manager (Read) feature (PR #4)
+  - Added KIND_LIVE_CHAT (1311) constant for NIP-53 live chat
+  - Combined chat + zap subscriptions into single relay request for efficiency
+  - Fixed reactive flow bug in subscribeToChatMessages (was returning static flow)
+  - Added profile enrichment for chat message authors (name + picture)
+  - Added author avatars to ChatMessageItem using Coil
+  - Rearranged chat message layout: Row 1 (avatar + name/time), Row 2 (content full width)
+  - Temporarily hidden chat footer until Chat Send is implemented
 
 **Issues Discovered:**
 - None new (NIP-46 pubkey issue still pending - see Known Issues)
 
 **Next session should:**
 1. Fix NIP-46 pubkey issue (critical for user features)
-2. Implement Chat Manager (Read) - kind 1311 messages for streams
-3. Implement Chat Send via NIP-46 bunker
-4. Consider Admin Curated Streams feature
+2. Implement Chat Send via NIP-46 bunker
+3. Consider Admin Curated Streams feature
+4. Consider fullscreen chat toggle (video expands when chat hidden)
 
 ## End of Session Routine
 
