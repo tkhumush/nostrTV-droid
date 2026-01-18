@@ -6,12 +6,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -22,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.key.Key
@@ -29,17 +33,22 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import com.nostrtv.android.data.auth.AuthState
+import com.nostrtv.android.data.nostr.Profile
 import com.nostrtv.android.viewmodel.ProfileViewModel
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -51,7 +60,8 @@ fun ProfileScreen(
     )
 ) {
     val authState by viewModel.authState.collectAsState()
-    val connectionString by viewModel.connectionString.collectAsState()
+    val userProfile by viewModel.userProfile.collectAsState()
+    val isLoadingProfile by viewModel.isLoadingProfile.collectAsState()
     var previousState by remember { mutableStateOf<AuthState?>(null) }
     var isNewLogin by remember { mutableStateOf(false) }
 
@@ -121,6 +131,8 @@ fun ProfileScreen(
                 is AuthState.Authenticated -> {
                     AuthenticatedContent(
                         pubkey = state.pubkey,
+                        profile = userProfile,
+                        isLoadingProfile = isLoadingProfile,
                         onLogout = { viewModel.logout() },
                         isNewLogin = isNewLogin
                     )
@@ -241,6 +253,8 @@ fun WaitingForConnectionContent(
 @Composable
 fun AuthenticatedContent(
     pubkey: String,
+    profile: Profile?,
+    isLoadingProfile: Boolean,
     onLogout: () -> Unit,
     isNewLogin: Boolean = false
 ) {
@@ -249,7 +263,7 @@ fun AuthenticatedContent(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Spacer(modifier = Modifier.height(64.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
         if (isNewLogin) {
             Text(
@@ -266,30 +280,106 @@ fun AuthenticatedContent(
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
             )
         } else {
+            // Profile Picture
+            Box(
+                modifier = Modifier
+                    .size(120.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                if (profile?.picture != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(profile.picture)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Profile picture",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text(
+                        text = profile?.displayNameOrName?.take(2)?.uppercase()
+                            ?: pubkey.take(2).uppercase(),
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Display Name
             Text(
-                text = "Signed In",
+                text = profile?.displayNameOrName ?: "Loading...",
                 style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.onBackground
             )
-        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+            // NIP-05 verification
+            profile?.nip05?.let { nip05 ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = nip05,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
 
-        Text(
-            text = "Public Key:",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-        )
+            Spacer(modifier = Modifier.height(16.dp))
 
-        Text(
-            text = "${pubkey.take(16)}...${pubkey.takeLast(8)}",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onBackground
-        )
+            // About
+            profile?.about?.let { about ->
+                Text(
+                    text = about,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 32.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
-        Spacer(modifier = Modifier.height(48.dp))
+            // Public Key (truncated)
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "npub: ",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                )
+                Text(
+                    text = "${pubkey.take(12)}...${pubkey.takeLast(8)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                )
+            }
 
-        if (!isNewLogin) {
+            // Lightning Address
+            profile?.lud16?.let { lud16 ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Lightning: ",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                    )
+                    Text(
+                        text = lud16,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(48.dp))
+
             Button(onClick = onLogout) {
                 Text("Logout")
             }
