@@ -7,6 +7,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -24,9 +25,10 @@ class NostrClient {
         val DEFAULT_RELAYS = listOf(
             "wss://relay.damus.io",
             "wss://relay.nostr.band",
-            "wss://nos.lol",
             "wss://relay.snort.social",
-            "wss://nostr.wine"
+            "wss://nostr.wine",
+            "wss://relay.primal.net",
+            "wss://purplepag.es"  // Dedicated kind 0 (profile metadata) relay
         )
 
         private const val LIVE_STREAMS_SUB_ID = "live_streams"
@@ -71,6 +73,7 @@ class NostrClient {
             is RelayMessage.Connected -> {
                 connectedCount++
                 Log.d(TAG, "Relay connected: ${message.url} ($connectedCount/${connections.size})")
+                Log.w("profiledebug", "RELAY CONNECTED: ${message.url}")
                 if (connectedCount == 1) {
                     _connectionState.value = ConnectionState.Connected
                 }
@@ -87,19 +90,35 @@ class NostrClient {
             }
             is RelayMessage.Error -> {
                 Log.e(TAG, "Relay error from ${message.url}: ${message.error}")
+                Log.w("profiledebug", "RELAY ERROR: ${message.url} - ${message.error}")
             }
         }
     }
 
     private fun processRelayText(relayUrl: String, text: String) {
-        val relayMessage = NostrProtocol.parseRelayMessage(text) ?: return
+        // Log raw message for profile subscriptions
+        if (text.contains("profiles_") || text.contains("\"kind\":0") || text.contains("kind: 0")) {
+            Log.w("profiledebug", "D. Raw relay message: ${text.take(200)}...")
+        }
+
+        val relayMessage = NostrProtocol.parseRelayMessage(text)
+        if (relayMessage == null) {
+            Log.w("profiledebug", "E. Failed to parse relay message: ${text.take(100)}")
+            return
+        }
 
         when (relayMessage) {
             is NostrRelayMessage.EventMessage -> {
+                if (relayMessage.event.kind == NostrProtocol.KIND_METADATA) {
+                    Log.w("profiledebug", "F. Received kind 0 event for sub: ${relayMessage.subscriptionId}")
+                }
                 handleEvent(relayMessage.subscriptionId, relayMessage.event)
             }
             is NostrRelayMessage.EndOfStoredEvents -> {
                 Log.d(TAG, "EOSE for subscription: ${relayMessage.subscriptionId}")
+                if (relayMessage.subscriptionId.startsWith("profiles_")) {
+                    Log.w("profiledebug", "G. EOSE for profile subscription: ${relayMessage.subscriptionId}")
+                }
             }
             is NostrRelayMessage.Notice -> {
                 Log.w(TAG, "Relay notice: ${relayMessage.message}")
@@ -180,13 +199,16 @@ class NostrClient {
     }
 
     private fun handleProfileEvent(event: NostrEvent) {
+        Log.w("profiledebug", "7. handleProfileEvent for pubkey: ${event.pubkey.take(16)}...")
         try {
             val profile = parseProfileEvent(event)
             if (profile != null) {
+                Log.w("profiledebug", "8. Parsed profile: ${profile.displayNameOrName}, picture: ${profile.picture?.take(50)}")
                 _profiles.update { it + (event.pubkey to profile) }
+                Log.w("profiledebug", "9. Profile stored, total profiles: ${_profiles.value.size}")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse profile event", e)
+            Log.e("profiledebug", "ERROR: Failed to parse profile event", e)
         }
     }
 
@@ -284,10 +306,22 @@ class NostrClient {
         return _profiles.value[pubkey]
     }
 
+    fun observeProfile(pubkey: String): Flow<Profile?> {
+        return _profiles.asStateFlow().let { flow ->
+            flow.map { profiles -> profiles[pubkey] }
+        }
+    }
+
+    fun observeProfiles(): Flow<Map<String, Profile>> {
+        return _profiles.asStateFlow()
+    }
+
     fun fetchProfiles(pubkeys: List<String>) {
+        Log.w("profiledebug", "A. fetchProfiles called with ${pubkeys.size} pubkeys")
         if (pubkeys.isEmpty()) return
 
         val unknownPubkeys = pubkeys.filter { it !in _profiles.value }
+        Log.w("profiledebug", "B. Unknown pubkeys: ${unknownPubkeys.size}")
         if (unknownPubkeys.isEmpty()) return
 
         val filter = NostrFilter(
@@ -296,6 +330,7 @@ class NostrClient {
         )
 
         val subscriptionMessage = NostrProtocol.createSubscription("profiles_${System.currentTimeMillis()}", filter)
+        Log.w("profiledebug", "C. Sending profile subscription: $subscriptionMessage")
         broadcast(subscriptionMessage)
     }
 

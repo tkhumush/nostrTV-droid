@@ -5,7 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nostrtv.android.data.nostr.ConnectionState
 import com.nostrtv.android.data.nostr.LiveStream
-import com.nostrtv.android.data.nostr.NostrClient
+import com.nostrtv.android.data.nostr.NostrClientProvider
+import com.nostrtv.android.data.nostr.Profile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,7 +17,7 @@ class HomeViewModel : ViewModel() {
         private const val TAG = "HomeViewModel"
     }
 
-    private val nostrClient = NostrClient()
+    private val nostrClient = NostrClientProvider.instance
 
     private val _streams = MutableStateFlow<List<LiveStream>>(emptyList())
     val streams: StateFlow<List<LiveStream>> = _streams.asStateFlow()
@@ -29,6 +30,9 @@ class HomeViewModel : ViewModel() {
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
+
+    private val _profiles = MutableStateFlow<Map<String, Profile>>(emptyMap())
+    val profiles: StateFlow<Map<String, Profile>> = _profiles.asStateFlow()
 
     init {
         Log.d(TAG, "HomeViewModel initialized, connecting to relays")
@@ -49,6 +53,14 @@ class HomeViewModel : ViewModel() {
                     }
                 }
 
+                // Observe profiles
+                launch {
+                    nostrClient.observeProfiles().collect { profilesMap ->
+                        Log.d(TAG, "Profiles updated: ${profilesMap.size} profiles")
+                        _profiles.value = profilesMap
+                    }
+                }
+
                 // Connect to relays
                 nostrClient.connect()
 
@@ -56,11 +68,18 @@ class HomeViewModel : ViewModel() {
                 nostrClient.subscribeToLiveStreams()
                     .collect { streamList ->
                         Log.d(TAG, "Received ${streamList.size} streams")
-                        _streams.value = streamList.filter { it.status == "live" }
+
+                        // Filter live streams, sort by most recent, keep only one per pubkey
+                        val dedupedStreams = streamList
+                            .filter { it.status == "live" }
                             .sortedByDescending { it.createdAt }
+                            .distinctBy { it.pubkey }
+
+                        Log.d(TAG, "After dedup: ${dedupedStreams.size} unique streams")
+                        _streams.value = dedupedStreams
 
                         // Fetch profiles for streamers
-                        val pubkeys = streamList.mapNotNull { it.streamerPubkey }.distinct()
+                        val pubkeys = dedupedStreams.mapNotNull { it.streamerPubkey }.distinct()
                         nostrClient.fetchProfiles(pubkeys)
                     }
             } catch (e: Exception) {

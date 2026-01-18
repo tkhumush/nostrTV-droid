@@ -6,12 +6,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -22,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.key.Key
@@ -29,17 +33,22 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import com.nostrtv.android.data.auth.AuthState
+import com.nostrtv.android.data.nostr.Profile
 import com.nostrtv.android.viewmodel.ProfileViewModel
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -51,7 +60,23 @@ fun ProfileScreen(
     )
 ) {
     val authState by viewModel.authState.collectAsState()
-    val connectionString by viewModel.connectionString.collectAsState()
+    val userProfile by viewModel.userProfile.collectAsState()
+    val isLoadingProfile by viewModel.isLoadingProfile.collectAsState()
+    var previousState by remember { mutableStateOf<AuthState?>(null) }
+    var isNewLogin by remember { mutableStateOf(false) }
+
+    // Auto-navigate back when login succeeds (transition from non-authenticated to authenticated)
+    LaunchedEffect(authState) {
+        if (authState is AuthState.Authenticated &&
+            previousState != null &&
+            previousState !is AuthState.Authenticated) {
+            isNewLogin = true
+            // Small delay to show success before navigating
+            kotlinx.coroutines.delay(1500)
+            onBack()
+        }
+        previousState = authState
+    }
 
     Box(
         modifier = Modifier
@@ -106,7 +131,10 @@ fun ProfileScreen(
                 is AuthState.Authenticated -> {
                     AuthenticatedContent(
                         pubkey = state.pubkey,
-                        onLogout = { viewModel.logout() }
+                        profile = userProfile,
+                        isLoadingProfile = isLoadingProfile,
+                        onLogout = { viewModel.logout() },
+                        isNewLogin = isNewLogin
                     )
                 }
 
@@ -225,39 +253,170 @@ fun WaitingForConnectionContent(
 @Composable
 fun AuthenticatedContent(
     pubkey: String,
-    onLogout: () -> Unit
+    profile: Profile?,
+    isLoadingProfile: Boolean,
+    onLogout: () -> Unit,
+    isNewLogin: Boolean = false
 ) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Spacer(modifier = Modifier.height(64.dp))
+    if (isNewLogin) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Spacer(modifier = Modifier.height(64.dp))
 
-        Text(
-            text = "Connected",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.primary
-        )
+            Text(
+                text = "Login Successful!",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
 
-        Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-        Text(
-            text = "Public Key:",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-        )
+            Text(
+                text = "Returning to streams...",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+            )
+        }
+    } else {
+        // Two-column layout for wide TV screens
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 32.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.Top
+        ) {
+            // Left Column - Profile Picture
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(200.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (profile?.picture != null) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(profile.picture)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Profile picture",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Text(
+                            text = profile?.displayNameOrName?.take(2)?.uppercase()
+                                ?: pubkey.take(2).uppercase(),
+                            style = MaterialTheme.typography.displayMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
 
-        Text(
-            text = "${pubkey.take(16)}...${pubkey.takeLast(8)}",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onBackground
-        )
+                Spacer(modifier = Modifier.height(32.dp))
 
-        Spacer(modifier = Modifier.height(48.dp))
+                Button(onClick = onLogout) {
+                    Text("Logout")
+                }
+            }
 
-        Button(onClick = onLogout) {
-            Text("Logout")
+            Spacer(modifier = Modifier.width(48.dp))
+
+            // Right Column - Profile Details
+            Column(
+                modifier = Modifier.weight(1.5f),
+                horizontalAlignment = Alignment.Start
+            ) {
+                // Display Name
+                Text(
+                    text = profile?.displayNameOrName ?: "Loading...",
+                    style = MaterialTheme.typography.displaySmall,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // NIP-05 / Nostr Address
+                ProfileInfoRow(
+                    label = "Nostr Address",
+                    value = profile?.nip05,
+                    valueColor = MaterialTheme.colorScheme.primary
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Public Key
+                ProfileInfoRow(
+                    label = "Public Key",
+                    value = "${pubkey.take(16)}...${pubkey.takeLast(8)}"
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Lightning Address
+                ProfileInfoRow(
+                    label = "Lightning",
+                    value = profile?.lud16,
+                    valueColor = MaterialTheme.colorScheme.tertiary
+                )
+
+                // Bio / About
+                profile?.about?.let { about ->
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Text(
+                        text = "About",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = about,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
+                        maxLines = 5,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ProfileInfoRow(
+    label: String,
+    value: String?,
+    valueColor: Color = MaterialTheme.colorScheme.onBackground
+) {
+    if (value != null) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "$label: ",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                modifier = Modifier.width(140.dp)
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyLarge,
+                color = valueColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

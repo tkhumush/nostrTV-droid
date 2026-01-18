@@ -93,6 +93,9 @@ dependencies {
     // Security for encrypted preferences
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
+    // Secp256k1 for Nostr cryptography (NIP-04, NIP-46)
+    implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-android:0.14.0")
+
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
