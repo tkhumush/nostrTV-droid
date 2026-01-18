@@ -142,7 +142,8 @@ object NostrCrypto {
 
     /**
      * NIP-44: Encrypt a message for a recipient.
-     * Uses ECDH + HKDF + ChaCha20-Poly1305.
+     * Uses ECDH + HKDF + ChaCha20 + HMAC-SHA256.
+     * Format: version (1) + nonce (32) + ciphertext (variable) + mac (32)
      */
     fun encryptNip44(
         plaintext: String,
@@ -162,14 +163,22 @@ object NostrCrypto {
             // Pad the plaintext
             val padded = padPlaintext(plaintext.toByteArray(Charsets.UTF_8))
 
-            // Encrypt with ChaCha20-Poly1305
-            val ciphertext = chacha20Poly1305Encrypt(padded, chachaKey, chachaNonce)
+            // Encrypt with plain ChaCha20
+            val ciphertext = chacha20Encrypt(padded, chachaKey, chachaNonce)
 
-            // Construct payload: version (1) + nonce (32) + ciphertext (variable)
-            val payload = ByteArray(1 + 32 + ciphertext.size)
+            // Compute MAC: HMAC-SHA256(hmacKey, nonce + ciphertext)
+            val hmac = Mac.getInstance("HmacSHA256")
+            hmac.init(SecretKeySpec(hmacKey, "HmacSHA256"))
+            hmac.update(nonce)
+            hmac.update(ciphertext)
+            val mac = hmac.doFinal()
+
+            // Construct payload: version (1) + nonce (32) + ciphertext (variable) + mac (32)
+            val payload = ByteArray(1 + 32 + ciphertext.size + 32)
             payload[0] = 2 // NIP-44 version 2
             System.arraycopy(nonce, 0, payload, 1, 32)
             System.arraycopy(ciphertext, 0, payload, 33, ciphertext.size)
+            System.arraycopy(mac, 0, payload, 33 + ciphertext.size, 32)
 
             return android.util.Base64.encodeToString(payload, android.util.Base64.NO_WRAP)
         } catch (e: Exception) {
@@ -180,6 +189,7 @@ object NostrCrypto {
 
     /**
      * NIP-44: Decrypt a message from a sender.
+     * Format: version (1) + nonce (32) + ciphertext (variable) + mac (32)
      */
     fun decryptNip44(
         ciphertext: String,
@@ -187,33 +197,63 @@ object NostrCrypto {
         senderPubKeyHex: String
     ): String {
         try {
+            Log.w(TAG, "=== NIP-44 DECRYPT START ===")
+            Log.w(TAG, "NIP-44 input (first 100): ${ciphertext.take(100)}")
+            Log.w(TAG, "NIP-44 sender pubkey: $senderPubKeyHex")
+
             val payload = android.util.Base64.decode(ciphertext, android.util.Base64.DEFAULT)
 
-            if (payload.size < 35) { // 1 + 32 + 2 minimum (version + nonce + min ciphertext)
+            // Minimum: 1 (version) + 32 (nonce) + 32 (min padded) + 16 (min ciphertext overhead) + 32 (mac)
+            if (payload.size < 99) {
                 throw IllegalArgumentException("NIP-44 payload too short: ${payload.size}")
             }
 
-            val version = payload[0].toInt()
+            val version = payload[0].toInt() and 0xFF
+            Log.w(TAG, "NIP-44 version: $version, payload size: ${payload.size}")
+
             if (version != 2) {
                 throw IllegalArgumentException("Unsupported NIP-44 version: $version")
             }
 
-            val nonce = payload.sliceArray(1..32)
-            val encryptedData = payload.sliceArray(33 until payload.size)
+            // Parse payload: version (1) + nonce (32) + ciphertext + mac (32)
+            val nonce = payload.sliceArray(1 until 33)  // bytes 1-32 (32 bytes)
+            val ciphertextWithMac = payload.sliceArray(33 until payload.size)
+            val encryptedData = ciphertextWithMac.sliceArray(0 until ciphertextWithMac.size - 32)
+            val mac = ciphertextWithMac.sliceArray(ciphertextWithMac.size - 32 until ciphertextWithMac.size)
 
-            Log.d(TAG, "NIP-44 decrypt: payload=${payload.size}, nonce=${nonce.size}, encrypted=${encryptedData.size}")
+            Log.w(TAG, "NIP-44 nonce (hex): ${nonce.toHex()}")
+            Log.w(TAG, "NIP-44 ciphertext size: ${encryptedData.size}")
+            Log.w(TAG, "NIP-44 mac (hex): ${mac.toHex()}")
 
             val conversationKey = computeNip44ConversationKey(receiverPrivateKeyHex, senderPubKeyHex)
+            Log.w(TAG, "NIP-44 conversation key (hex): ${conversationKey.toHex()}")
 
             // Derive message keys using HKDF
-            val (chachaKey, chachaNonce, _) = deriveMessageKeys(conversationKey, nonce)
+            val (chachaKey, chachaNonce, hmacKey) = deriveMessageKeys(conversationKey, nonce)
+            Log.w(TAG, "NIP-44 chacha key (hex): ${chachaKey.toHex()}")
+            Log.w(TAG, "NIP-44 chacha nonce (hex): ${chachaNonce.toHex()}")
+            Log.w(TAG, "NIP-44 hmac key (hex): ${hmacKey.toHex()}")
 
-            // Decrypt with ChaCha20-Poly1305
-            val padded = chacha20Poly1305Decrypt(encryptedData, chachaKey, chachaNonce)
+            // Verify MAC: HMAC-SHA256(hmacKey, nonce + ciphertext)
+            val hmac = Mac.getInstance("HmacSHA256")
+            hmac.init(SecretKeySpec(hmacKey, "HmacSHA256"))
+            hmac.update(nonce)
+            hmac.update(encryptedData)
+            val computedMac = hmac.doFinal()
+            Log.w(TAG, "NIP-44 computed mac (hex): ${computedMac.toHex()}")
+
+            if (!computedMac.contentEquals(mac)) {
+                throw IllegalArgumentException("NIP-44 MAC verification failed")
+            }
+            Log.w(TAG, "NIP-44 MAC verified successfully")
+
+            // Decrypt with plain ChaCha20 (not Poly1305!)
+            val padded = chacha20Decrypt(encryptedData, chachaKey, chachaNonce)
 
             // Unpad the plaintext
             val plaintext = unpadPlaintext(padded)
 
+            Log.w(TAG, "NIP-44 decryption successful, plaintext length: ${plaintext.size}")
             return String(plaintext, Charsets.UTF_8)
         } catch (e: Exception) {
             Log.e(TAG, "NIP-44 decryption failed", e)
@@ -291,35 +331,33 @@ object NostrCrypto {
     }
 
     /**
-     * ChaCha20-Poly1305 encryption.
+     * Plain ChaCha20 encryption (without Poly1305).
      */
-    private fun chacha20Poly1305Encrypt(plaintext: ByteArray, key: ByteArray, nonce: ByteArray): ByteArray {
+    private fun chacha20Encrypt(plaintext: ByteArray, key: ByteArray, nonce: ByteArray): ByteArray {
         try {
-            val cipher = Cipher.getInstance("ChaCha20-Poly1305")
+            val cipher = Cipher.getInstance("ChaCha20")
             val keySpec = SecretKeySpec(key, "ChaCha20")
-            val paramSpec = javax.crypto.spec.GCMParameterSpec(128, nonce)
-            cipher.init(Cipher.ENCRYPT_MODE, keySpec, paramSpec)
+            val ivSpec = IvParameterSpec(nonce)
+            cipher.init(Cipher.ENCRYPT_MODE, keySpec, ivSpec)
             return cipher.doFinal(plaintext)
         } catch (e: Exception) {
-            Log.e(TAG, "ChaCha20-Poly1305 encrypt failed, trying fallback", e)
-            // Fallback for older Android versions - use AES-GCM as approximation
-            // This won't be compatible but will at least not crash
+            Log.e(TAG, "ChaCha20 encrypt failed", e)
             throw e
         }
     }
 
     /**
-     * ChaCha20-Poly1305 decryption.
+     * Plain ChaCha20 decryption (without Poly1305).
      */
-    private fun chacha20Poly1305Decrypt(ciphertext: ByteArray, key: ByteArray, nonce: ByteArray): ByteArray {
+    private fun chacha20Decrypt(ciphertext: ByteArray, key: ByteArray, nonce: ByteArray): ByteArray {
         try {
-            val cipher = Cipher.getInstance("ChaCha20-Poly1305")
+            val cipher = Cipher.getInstance("ChaCha20")
             val keySpec = SecretKeySpec(key, "ChaCha20")
-            val paramSpec = javax.crypto.spec.GCMParameterSpec(128, nonce)
-            cipher.init(Cipher.DECRYPT_MODE, keySpec, paramSpec)
+            val ivSpec = IvParameterSpec(nonce)
+            cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec)
             return cipher.doFinal(ciphertext)
         } catch (e: Exception) {
-            Log.e(TAG, "ChaCha20-Poly1305 decrypt failed", e)
+            Log.e(TAG, "ChaCha20 decrypt failed", e)
             throw e
         }
     }
