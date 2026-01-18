@@ -338,6 +338,79 @@ Building a **TV-first, decentralized media client**. Proceed incrementally.
 2. Fix NIP-46 pubkey issue (see Known Issues above)
 3. Continue with Admin Curated Streams or Chat features
 
+## End of Session Routine
+
+When the user says **"end session"**, **"wrap up"**, **"session ending routine"**, or similar, execute this checklist:
+
+### 1. Git Status Check
+```bash
+git status
+git log --oneline -5
+```
+- Ensure working tree is clean
+- If uncommitted changes exist, ask if they should be committed or stashed
+- Verify current branch (should typically be `main` after merging feature work)
+
+### 2. Update Progress Checklist
+Review the Progress Checklist section and mark any newly completed items:
+- Check off completed checkpoints
+- Add new checkpoints if scope expanded
+
+### 3. Update Feature Roadmap
+Update the Phase 2 Feature Roadmap table:
+- Change status from "Pending" to "**Done**" for completed features
+- Add any new features discovered during the session
+- Note any blockers or dependencies discovered
+
+### 4. Document New Issues
+If any bugs, blockers, or issues were discovered:
+- Add to the "Known Issues" section with:
+  - Clear title
+  - Symptoms observed
+  - Files involved
+  - Attempted fixes (if any)
+  - Potential causes
+
+### 5. Update Session Notes
+Replace or update the "Session Notes" section with:
+```markdown
+### Last Session (Date)
+**Branch:** current branch or main
+**PRs:** list any PRs created/merged
+
+**Completed:**
+- Bullet list of features/fixes completed this session
+
+**Issues Discovered:**
+- Any new issues found (reference Known Issues section)
+
+**Next session should:**
+1. Prioritized list of next steps
+2. Any urgent fixes needed
+3. Features to continue
+```
+
+### 6. Summarize for User
+Provide a brief summary:
+- What was accomplished this session
+- Current state of the codebase
+- Recommended next steps
+- Any blocking issues to be aware of
+
+### 7. Final Verification
+```bash
+git status
+git branch -a
+```
+Confirm:
+- Working tree is clean
+- On expected branch
+- Remote is up to date
+
+---
+
+**Trigger phrases:** "end session", "wrap up", "session ending routine", "close out session", "finish up"
+
 ## Build Commands
 
 ```bash
