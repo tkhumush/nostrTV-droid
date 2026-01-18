@@ -8,12 +8,15 @@ import androidx.lifecycle.viewModelScope
 import com.nostrtv.android.data.auth.AuthState
 import com.nostrtv.android.data.auth.BunkerAuthManager
 import com.nostrtv.android.data.auth.SessionStore
-import com.nostrtv.android.data.nostr.NostrClient
+import com.nostrtv.android.data.nostr.NostrClientProvider
 import com.nostrtv.android.data.nostr.Profile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class ProfileViewModel(
     context: Context
@@ -24,7 +27,7 @@ class ProfileViewModel(
 
     private val sessionStore = SessionStore(context)
     private val bunkerAuthManager = BunkerAuthManager(sessionStore)
-    private val nostrClient = NostrClient()
+    private val nostrClient = NostrClientProvider.instance
 
     val authState: StateFlow<AuthState> = bunkerAuthManager.authState
     val connectionString: StateFlow<String?> = bunkerAuthManager.connectionString
@@ -50,27 +53,40 @@ class ProfileViewModel(
     }
 
     private fun fetchUserProfile(pubkey: String) {
-        Log.d(TAG, "Fetching profile for pubkey: ${pubkey.take(8)}...")
+        Log.w("profiledebug", "1. fetchUserProfile called for pubkey: ${pubkey.take(16)}...")
         _isLoadingProfile.value = true
 
         viewModelScope.launch {
             try {
-                // Connect to relays
-                nostrClient.connect()
-
-                // Fetch the profile
-                nostrClient.fetchProfiles(listOf(pubkey))
-
-                // Observe profile updates
-                nostrClient.observeProfile(pubkey).collect { profile ->
-                    if (profile != null) {
-                        Log.d(TAG, "Received profile: ${profile.displayNameOrName}")
-                        _userProfile.value = profile
-                        _isLoadingProfile.value = false
-                    }
+                // Check if profile is already cached
+                val cachedProfile = nostrClient.getProfile(pubkey)
+                if (cachedProfile != null) {
+                    Log.w("profiledebug", "2. Profile found in cache: ${cachedProfile.displayNameOrName}")
+                    _userProfile.value = cachedProfile
+                    _isLoadingProfile.value = false
+                    return@launch
                 }
+
+                Log.w("profiledebug", "2. Profile not in cache, requesting from relays...")
+
+                // Request the profile from relays
+                nostrClient.fetchProfiles(listOf(pubkey))
+                Log.w("profiledebug", "3. Profile request sent, waiting for response...")
+
+                // Wait for profile with timeout (15 seconds)
+                val profile = withTimeoutOrNull(15000) {
+                    nostrClient.observeProfile(pubkey).filterNotNull().first()
+                }
+
+                if (profile != null) {
+                    Log.w("profiledebug", "4. Received profile: ${profile.displayNameOrName}")
+                    _userProfile.value = profile
+                } else {
+                    Log.w("profiledebug", "4. Timeout waiting for profile, pubkey may not have kind 0 event")
+                }
+                _isLoadingProfile.value = false
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to fetch profile", e)
+                Log.e("profiledebug", "ERROR: Failed to fetch profile", e)
                 _isLoadingProfile.value = false
             }
         }
@@ -123,7 +139,7 @@ class ProfileViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        nostrClient.disconnect()
+        // Don't disconnect - shared NostrClient is managed by HomeViewModel
     }
 
     class Factory(private val context: Context) : ViewModelProvider.Factory {

@@ -151,7 +151,13 @@ object NostrCrypto {
         recipientPubKeyHex: String
     ): String {
         try {
+            Log.w(TAG, "=== NIP-44 ENCRYPT START ===")
+            Log.w(TAG, "NIP-44 encrypt plaintext: $plaintext")
+            Log.w(TAG, "NIP-44 encrypt sender private key (first 16): ${senderPrivateKeyHex.take(16)}...")
+            Log.w(TAG, "NIP-44 encrypt recipient pubkey: $recipientPubKeyHex")
+
             val conversationKey = computeNip44ConversationKey(senderPrivateKeyHex, recipientPubKeyHex)
+            Log.w(TAG, "NIP-44 encrypt conversation key: ${conversationKey.toHex()}")
 
             // Generate random 32-byte nonce
             val nonce = ByteArray(32)

@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nostrtv.android.data.nostr.ConnectionState
 import com.nostrtv.android.data.nostr.LiveStream
-import com.nostrtv.android.data.nostr.NostrClient
+import com.nostrtv.android.data.nostr.NostrClientProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,7 +16,7 @@ class HomeViewModel : ViewModel() {
         private const val TAG = "HomeViewModel"
     }
 
-    private val nostrClient = NostrClient()
+    private val nostrClient = NostrClientProvider.instance
 
     private val _streams = MutableStateFlow<List<LiveStream>>(emptyList())
     val streams: StateFlow<List<LiveStream>> = _streams.asStateFlow()

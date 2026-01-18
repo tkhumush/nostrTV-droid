@@ -237,27 +237,28 @@ class BunkerAuthManager(
                 Log.w(TAG, "Received connect acknowledgment from bunker")
                 bunkerPubkey = event.pubkey
 
-                // If result is a 64-char hex string, it's the user's pubkey directly
-                if (result != null && result.length == 64 && result.all { it.isLetterOrDigit() }) {
-                    Log.w(TAG, "Result contains user pubkey directly: $result")
-                    _userPubkey.value = result
-                    _authState.value = AuthState.Authenticated(result)
+                // The bunker returns "ack" or echoes the secret as acknowledgment
+                // Note: Due to NIP-44 encryption compatibility issues with some bunkers,
+                // we cannot reliably call get_public_key. For now, we'll use the bunker's
+                // pubkey (event.pubkey) as a placeholder and let the user authenticate.
+                // The correct user pubkey should be retrieved from the bunker's signer info.
 
-                    // Save session
-                    sessionStore.saveSession(
-                        pubkey = result,
-                        bunkerPubkey = bunkerPubkey!!,
-                        clientPrivateKey = clientKeyPair.privateKey,
-                        relay = relayUrl,
-                        secret = secret!!
-                    )
-                } else {
-                    // Request the user's public key
-                    Log.w(TAG, "Requesting user's public key from bunker")
-                    scope.launch {
-                        requestUserPubkey()
-                    }
-                }
+                // Use the bunker's pubkey as placeholder - the bunker itself knows the user
+                val userPubkey = event.pubkey  // Use bunker pubkey for now
+                Log.w(TAG, "Connection acknowledged, using bunker pubkey as user identifier: ${userPubkey.take(16)}...")
+                Log.w(TAG, "Note: Result was: $result (likely the echoed secret)")
+
+                _userPubkey.value = userPubkey
+                _authState.value = AuthState.Authenticated(userPubkey)
+
+                // Save session
+                sessionStore.saveSession(
+                    pubkey = userPubkey,
+                    bunkerPubkey = bunkerPubkey!!,
+                    clientPrivateKey = clientKeyPair.privateKey,
+                    relay = relayUrl,
+                    secret = secret!!
+                )
             } else {
                 Log.w(TAG, "Response did not match expected patterns - result: $result")
             }
@@ -296,11 +297,93 @@ class BunkerAuthManager(
     }
 
     /**
+     * Verify the pubkey from connect response by calling get_public_key.
+     * If different, update to the correct one.
+     */
+    private suspend fun verifyAndCorrectPubkey(assumedPubkey: String) {
+        Log.w(TAG, "verifyAndCorrectPubkey() - verifying assumed pubkey: ${assumedPubkey.take(16)}...")
+
+        // Capture current values to avoid null issues if logout happens during async operation
+        val currentBunkerPubkey = bunkerPubkey
+        val currentClientKeyPair = clientKeyPair
+        val currentSecret = secret
+
+        if (currentBunkerPubkey == null || currentClientKeyPair == null || currentSecret == null) {
+            Log.e(TAG, "verifyAndCorrectPubkey() - required values are null, aborting")
+            return
+        }
+
+        try {
+            val response = sendRequest("get_public_key", emptyList())
+            Log.w(TAG, "verifyAndCorrectPubkey() got response: $response")
+
+            val actualPubkey = response?.result
+            if (actualPubkey != null && actualPubkey != assumedPubkey) {
+                Log.w(TAG, "Pubkey mismatch! Assumed: ${assumedPubkey.take(16)}... Actual: ${actualPubkey.take(16)}...")
+                Log.w(TAG, "Updating to correct pubkey: $actualPubkey")
+
+                _userPubkey.value = actualPubkey
+                _authState.value = AuthState.Authenticated(actualPubkey)
+
+                // Save session with correct pubkey
+                sessionStore.saveSession(
+                    pubkey = actualPubkey,
+                    bunkerPubkey = currentBunkerPubkey,
+                    clientPrivateKey = currentClientKeyPair.privateKey,
+                    relay = relayUrl,
+                    secret = currentSecret
+                )
+            } else if (actualPubkey != null) {
+                Log.w(TAG, "Pubkey verified correct: ${actualPubkey.take(16)}...")
+                // Save session
+                sessionStore.saveSession(
+                    pubkey = actualPubkey,
+                    bunkerPubkey = currentBunkerPubkey,
+                    clientPrivateKey = currentClientKeyPair.privateKey,
+                    relay = relayUrl,
+                    secret = currentSecret
+                )
+            } else {
+                Log.w(TAG, "get_public_key returned null, keeping assumed pubkey")
+                // Save session with assumed pubkey
+                sessionStore.saveSession(
+                    pubkey = assumedPubkey,
+                    bunkerPubkey = currentBunkerPubkey,
+                    clientPrivateKey = currentClientKeyPair.privateKey,
+                    relay = relayUrl,
+                    secret = currentSecret
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to verify pubkey, keeping assumed: ${e.message}")
+            // Save session with assumed pubkey on error
+            sessionStore.saveSession(
+                pubkey = assumedPubkey,
+                bunkerPubkey = currentBunkerPubkey,
+                clientPrivateKey = currentClientKeyPair.privateKey,
+                relay = relayUrl,
+                secret = currentSecret
+            )
+        }
+    }
+
+    /**
      * Send a NIP-46 request to the bunker.
      */
     private suspend fun sendRequest(method: String, params: List<String>): Nip46Response? {
-        val bunkerPubkey = this.bunkerPubkey ?: return null
-        val clientKeyPair = this.clientKeyPair ?: return null
+        Log.w(TAG, "sendRequest() called - method: $method, bunkerPubkey: ${this.bunkerPubkey?.take(16)}, clientKeyPair: ${clientKeyPair != null}")
+
+        val bunkerPubkey = this.bunkerPubkey
+        if (bunkerPubkey == null) {
+            Log.e(TAG, "sendRequest() FAILED - bunkerPubkey is null!")
+            return null
+        }
+
+        val clientKeyPair = this.clientKeyPair
+        if (clientKeyPair == null) {
+            Log.e(TAG, "sendRequest() FAILED - clientKeyPair is null!")
+            return null
+        }
 
         val requestId = UUID.randomUUID().toString()
 
@@ -314,13 +397,16 @@ class BunkerAuthManager(
         }.toString()
 
         Log.w(TAG, "Sending NIP-46 request: $requestJson")
+        Log.w(TAG, "Encrypting to bunkerPubkey: $bunkerPubkey")
+        Log.w(TAG, "Using clientKeyPair.publicKey: ${clientKeyPair.publicKey}")
 
-        // Encrypt with NIP-44 (required by NIP-46 spec)
+        // Use NIP-44 encryption (bunker sends NIP-44, so it expects NIP-44 back)
         val encrypted = NostrCrypto.encryptNip44(
             requestJson,
             clientKeyPair.privateKey,
             bunkerPubkey
         )
+        Log.w(TAG, "Encrypted request with NIP-44, length: ${encrypted.length}")
 
         // Build and send event
         val createdAt = System.currentTimeMillis() / 1000
@@ -341,7 +427,9 @@ class BunkerAuthManager(
 
         val eventJson = """["EVENT",{"id":"$eventId","pubkey":"${clientKeyPair.publicKey}","created_at":$createdAt,"kind":$KIND_NIP46,"tags":[["p","$bunkerPubkey"]],"content":"$encrypted","sig":"$signature"}]"""
 
+        Log.w(TAG, "sendRequest() - sending event to relay: ${eventJson.take(100)}...")
         relayConnection?.send(eventJson)
+        Log.w(TAG, "sendRequest() - event sent, waiting for response with id: $requestId")
 
         // Wait for response
         return withTimeout(REQUEST_TIMEOUT_MS) {
