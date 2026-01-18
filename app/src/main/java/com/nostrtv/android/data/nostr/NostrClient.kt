@@ -312,6 +312,10 @@ class NostrClient {
         }
     }
 
+    fun observeProfiles(): Flow<Map<String, Profile>> {
+        return _profiles.asStateFlow()
+    }
+
     fun fetchProfiles(pubkeys: List<String>) {
         Log.w("profiledebug", "A. fetchProfiles called with ${pubkeys.size} pubkeys")
         if (pubkeys.isEmpty()) return

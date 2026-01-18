@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.nostrtv.android.data.nostr.ConnectionState
 import com.nostrtv.android.data.nostr.LiveStream
 import com.nostrtv.android.data.nostr.NostrClientProvider
+import com.nostrtv.android.data.nostr.Profile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +31,9 @@ class HomeViewModel : ViewModel() {
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _profiles = MutableStateFlow<Map<String, Profile>>(emptyMap())
+    val profiles: StateFlow<Map<String, Profile>> = _profiles.asStateFlow()
+
     init {
         Log.d(TAG, "HomeViewModel initialized, connecting to relays")
         connectAndSubscribe()
@@ -46,6 +50,14 @@ class HomeViewModel : ViewModel() {
                         if (state is ConnectionState.Connected) {
                             _isLoading.value = false
                         }
+                    }
+                }
+
+                // Observe profiles
+                launch {
+                    nostrClient.observeProfiles().collect { profilesMap ->
+                        Log.d(TAG, "Profiles updated: ${profilesMap.size} profiles")
+                        _profiles.value = profilesMap
                     }
                 }
 
