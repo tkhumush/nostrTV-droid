@@ -46,20 +46,23 @@ class PlayerViewModel : ViewModel() {
     }
 
     private fun subscribeToStreamData(aTag: String) {
+        // Subscribe to both chat and zaps in a single relay subscription
+        nostrClient.subscribeToStreamEvents(aTag)
+
         viewModelScope.launch {
             try {
-                // Subscribe to chat messages
+                // Observe chat messages
                 launch {
-                    nostrClient.subscribeToChatMessages(aTag)
+                    nostrClient.observeChatMessages(aTag)
                         .collect { messages ->
                             Log.d(TAG, "Received ${messages.size} chat messages")
                             _chatMessages.value = messages.sortedByDescending { it.createdAt }
                         }
                 }
 
-                // Subscribe to zap receipts
+                // Observe zap receipts
                 launch {
-                    nostrClient.subscribeToZapReceipts(aTag)
+                    nostrClient.observeZapReceipts(aTag)
                         .collect { zaps ->
                             Log.d(TAG, "Received ${zaps.size} zap receipts")
                             _zapReceipts.value = zaps.sortedByDescending { it.createdAt }

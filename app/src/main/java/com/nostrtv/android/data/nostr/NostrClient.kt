@@ -34,8 +34,7 @@ class NostrClient {
         )
 
         private const val LIVE_STREAMS_SUB_ID = "live_streams"
-        private const val CHAT_SUB_PREFIX = "chat_"
-        private const val ZAPS_SUB_PREFIX = "zaps_"
+        private const val STREAM_EVENTS_SUB_PREFIX = "stream_"
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -135,12 +134,17 @@ class NostrClient {
         when (event.kind) {
             NostrProtocol.KIND_LIVE_EVENT -> handleLiveStreamEvent(event)
             NostrProtocol.KIND_METADATA -> handleProfileEvent(event)
-            NostrProtocol.KIND_TEXT_NOTE -> {
-                if (subscriptionId.startsWith(CHAT_SUB_PREFIX)) {
+            NostrProtocol.KIND_LIVE_CHAT -> {
+                // NIP-53 live chat messages (kind 1311)
+                if (subscriptionId.startsWith(STREAM_EVENTS_SUB_PREFIX)) {
                     handleChatEvent(subscriptionId, event)
                 }
             }
-            NostrProtocol.KIND_ZAP_RECEIPT -> handleZapReceiptEvent(subscriptionId, event)
+            NostrProtocol.KIND_ZAP_RECEIPT -> {
+                if (subscriptionId.startsWith(STREAM_EVENTS_SUB_PREFIX)) {
+                    handleZapReceiptEvent(subscriptionId, event)
+                }
+            }
         }
     }
 
@@ -234,13 +238,16 @@ class NostrClient {
     }
 
     private fun handleChatEvent(subscriptionId: String, event: NostrEvent) {
-        val streamId = subscriptionId.removePrefix(CHAT_SUB_PREFIX)
+        val streamId = subscriptionId.removePrefix(STREAM_EVENTS_SUB_PREFIX)
+        val profile = _profiles.value[event.pubkey]
+
         val message = ChatMessage(
             id = event.id,
             pubkey = event.pubkey,
             content = event.content,
             createdAt = event.createdAt,
-            authorName = _profiles.value[event.pubkey]?.displayNameOrName
+            authorName = profile?.displayNameOrName,
+            authorPicture = profile?.picture
         )
 
         _chatMessages.update { current ->
@@ -251,12 +258,17 @@ class NostrClient {
             }
             current + (streamId to messages)
         }
+
+        // Fetch profile if we don't have it
+        if (event.pubkey !in _profiles.value) {
+            fetchProfiles(listOf(event.pubkey))
+        }
     }
 
     private fun handleZapReceiptEvent(subscriptionId: String, event: NostrEvent) {
         Log.d(TAG, "Received zap receipt: ${event.id}")
 
-        val streamKey = subscriptionId.removePrefix(ZAPS_SUB_PREFIX)
+        val streamKey = subscriptionId.removePrefix(STREAM_EVENTS_SUB_PREFIX)
         val zapReceipt = parseZapReceiptEvent(event)
 
         if (zapReceipt != null) {
@@ -346,37 +358,54 @@ class NostrClient {
         return _streams.asStateFlow()
     }
 
-    fun subscribeToChatMessages(streamATag: String): Flow<List<ChatMessage>> {
-        val subscriptionId = "$CHAT_SUB_PREFIX${streamATag.hashCode()}"
-        Log.d(TAG, "Subscribing to chat for stream: $streamATag")
+    /**
+     * Subscribe to all stream-related events (chat messages + zap receipts) in a single subscription.
+     * This is more efficient than separate subscriptions since they share the same `a` tag filter.
+     */
+    fun subscribeToStreamEvents(streamATag: String) {
+        val streamKey = streamATag.hashCode().toString()
+        val subscriptionId = "$STREAM_EVENTS_SUB_PREFIX$streamKey"
+        Log.d(TAG, "Subscribing to stream events (chat + zaps) for: $streamATag (key: $streamKey)")
 
         val filter = NostrFilter(
-            kinds = listOf(NostrProtocol.KIND_TEXT_NOTE),
+            kinds = listOf(NostrProtocol.KIND_LIVE_CHAT, NostrProtocol.KIND_ZAP_RECEIPT),
             tags = mapOf("a" to listOf(streamATag)),
             limit = 200
         )
 
         val subscriptionMessage = NostrProtocol.createSubscription(subscriptionId, filter)
         broadcast(subscriptionMessage)
-
-        return MutableStateFlow(_chatMessages.value[streamATag.hashCode().toString()] ?: emptyList())
     }
 
-    fun subscribeToZapReceipts(streamATag: String): Flow<List<ZapReceipt>> {
+    /**
+     * Get a flow of chat messages for a stream. Call subscribeToStreamEvents() first.
+     */
+    fun observeChatMessages(streamATag: String): Flow<List<ChatMessage>> {
         val streamKey = streamATag.hashCode().toString()
-        val subscriptionId = "$ZAPS_SUB_PREFIX$streamKey"
-        Log.d(TAG, "Subscribing to zaps for stream: $streamATag (key: $streamKey)")
 
-        val filter = NostrFilter(
-            kinds = listOf(NostrProtocol.KIND_ZAP_RECEIPT),
-            tags = mapOf("a" to listOf(streamATag)),
-            limit = 50
-        )
+        return _chatMessages.asStateFlow().map { messagesMap ->
+            val messages = messagesMap[streamKey] ?: emptyList()
+            // Enrich messages with updated profile info
+            messages.map { msg ->
+                val profile = _profiles.value[msg.pubkey]
+                if (profile != null && (msg.authorName != profile.displayNameOrName || msg.authorPicture != profile.picture)) {
+                    msg.copy(
+                        authorName = profile.displayNameOrName,
+                        authorPicture = profile.picture
+                    )
+                } else {
+                    msg
+                }
+            }
+        }
+    }
 
-        val subscriptionMessage = NostrProtocol.createSubscription(subscriptionId, filter)
-        broadcast(subscriptionMessage)
+    /**
+     * Get a flow of zap receipts for a stream. Call subscribeToStreamEvents() first.
+     */
+    fun observeZapReceipts(streamATag: String): Flow<List<ZapReceipt>> {
+        val streamKey = streamATag.hashCode().toString()
 
-        // Return a flow that observes zap receipts for this stream
         return _zapReceipts.asStateFlow().map { zapsMap ->
             val zaps = zapsMap[streamKey] ?: emptyList()
             // Enrich zaps with updated profile info
