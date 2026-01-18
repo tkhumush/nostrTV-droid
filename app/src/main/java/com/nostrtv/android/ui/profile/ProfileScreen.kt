@@ -258,14 +258,14 @@ fun AuthenticatedContent(
     onLogout: () -> Unit,
     isNewLogin: Boolean = false
 ) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Spacer(modifier = Modifier.height(32.dp))
+    if (isNewLogin) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Spacer(modifier = Modifier.height(64.dp))
 
-        if (isNewLogin) {
             Text(
                 text = "Login Successful!",
                 style = MaterialTheme.typography.headlineMedium,
@@ -279,110 +279,144 @@ fun AuthenticatedContent(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
             )
-        } else {
-            // Profile Picture
-            Box(
-                modifier = Modifier
-                    .size(120.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center
+        }
+    } else {
+        // Two-column layout for wide TV screens
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 32.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.Top
+        ) {
+            // Left Column - Profile Picture
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                if (profile?.picture != null) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(profile.picture)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = "Profile picture",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Text(
-                        text = profile?.displayNameOrName?.take(2)?.uppercase()
-                            ?: pubkey.take(2).uppercase(),
-                        style = MaterialTheme.typography.headlineLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Box(
+                    modifier = Modifier
+                        .size(200.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (profile?.picture != null) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(profile.picture)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Profile picture",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Text(
+                            text = profile?.displayNameOrName?.take(2)?.uppercase()
+                                ?: pubkey.take(2).uppercase(),
+                            style = MaterialTheme.typography.displayMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Button(onClick = onLogout) {
+                    Text("Logout")
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.width(48.dp))
 
-            // Display Name
-            Text(
-                text = profile?.displayNameOrName ?: "Loading...",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-
-            // NIP-05 verification
-            profile?.nip05?.let { nip05 ->
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = nip05,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // About
-            profile?.about?.let { about ->
-                Text(
-                    text = about,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                    textAlign = TextAlign.Center,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 32.dp)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            // Public Key (truncated)
-            Row(
-                verticalAlignment = Alignment.CenterVertically
+            // Right Column - Profile Details
+            Column(
+                modifier = Modifier.weight(1.5f),
+                horizontalAlignment = Alignment.Start
             ) {
+                // Display Name
                 Text(
-                    text = "npub: ",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                    text = profile?.displayNameOrName ?: "Loading...",
+                    style = MaterialTheme.typography.displaySmall,
+                    color = MaterialTheme.colorScheme.onBackground
                 )
-                Text(
-                    text = "${pubkey.take(12)}...${pubkey.takeLast(8)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                )
-            }
 
-            // Lightning Address
-            profile?.lud16?.let { lud16 ->
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // NIP-05 / Nostr Address
+                ProfileInfoRow(
+                    label = "Nostr Address",
+                    value = profile?.nip05,
+                    valueColor = MaterialTheme.colorScheme.primary
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Public Key
+                ProfileInfoRow(
+                    label = "Public Key",
+                    value = "${pubkey.take(16)}...${pubkey.takeLast(8)}"
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Lightning Address
+                ProfileInfoRow(
+                    label = "Lightning",
+                    value = profile?.lud16,
+                    valueColor = MaterialTheme.colorScheme.tertiary
+                )
+
+                // Bio / About
+                profile?.about?.let { about ->
+                    Spacer(modifier = Modifier.height(24.dp))
+
                     Text(
-                        text = "Lightning: ",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = "About",
+                        style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
                     )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     Text(
-                        text = lud16,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                        text = about,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
+                        maxLines = 5,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.height(48.dp))
-
-            Button(onClick = onLogout) {
-                Text("Logout")
-            }
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ProfileInfoRow(
+    label: String,
+    value: String?,
+    valueColor: Color = MaterialTheme.colorScheme.onBackground
+) {
+    if (value != null) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "$label: ",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                modifier = Modifier.width(140.dp)
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyLarge,
+                color = valueColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
