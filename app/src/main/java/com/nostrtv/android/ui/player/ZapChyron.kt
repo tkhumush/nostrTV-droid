@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -84,6 +85,7 @@ fun ZapChyron(
         Box(
             modifier = modifier
                 .fillMaxWidth()
+                .height(48.dp)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
@@ -92,7 +94,7 @@ fun ZapChyron(
                         )
                     )
                 )
-                .padding(horizontal = 16.dp, vertical = 6.dp),
+                .padding(horizontal = 16.dp),
             contentAlignment = Alignment.CenterStart
         ) {
             AnimatedContent(
