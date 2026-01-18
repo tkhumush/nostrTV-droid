@@ -12,11 +12,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -27,14 +34,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
+import androidx.tv.material3.IconButton
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nostrtv.android.data.nostr.ChatMessage
@@ -57,8 +68,6 @@ fun PlayerScreen(
     val zapReceipts by viewModel.zapReceipts.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
-    var showChat by remember { mutableStateOf(true) }
-
     // Load stream data when provided
     LaunchedEffect(stream) {
         stream?.let {
@@ -78,74 +87,129 @@ fun PlayerScreen(
                             onBack()
                             true
                         }
-                        Key.DirectionRight -> {
-                            showChat = !showChat
-                            true
-                        }
                         else -> false
                     }
                 } else false
             }
     ) {
         Row(modifier = Modifier.fillMaxSize()) {
-            // Video Player
-            Box(
+            // Video Area (83%)
+            Column(
                 modifier = Modifier
-                    .weight(if (showChat) 0.7f else 1f)
+                    .weight(0.83f)
                     .fillMaxHeight()
             ) {
-                val streamUrl = currentStream?.streamingUrl ?: ""
+                // Stream Info Header (above video) - clickable
+                StreamInfoHeader(
+                    stream = currentStream,
+                    onClick = {
+                        // TODO: Navigate to streamer profile
+                        Log.d("PlayerScreen", "Stream info clicked: ${currentStream?.streamerPubkey}")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-                if (streamUrl.isNotEmpty()) {
-                    VideoPlayer(
-                        streamUrl = streamUrl,
-                        modifier = Modifier.fillMaxSize(),
-                        onError = { e ->
-                            Log.e("PlayerScreen", "Video error: ${e.message}")
+                // Video Player (fills remaining space)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    val streamUrl = currentStream?.streamingUrl ?: ""
+
+                    if (streamUrl.isNotEmpty()) {
+                        VideoPlayer(
+                            streamUrl = streamUrl,
+                            modifier = Modifier.fillMaxSize(),
+                            onError = { e ->
+                                Log.e("PlayerScreen", "Video error: ${e.message}")
+                            }
+                        )
+                    } else if (isLoading) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Loading stream...",
+                                color = Color.White
+                            )
                         }
-                    )
-                } else if (isLoading) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Loading stream...",
-                            color = Color.White
-                        )
-                    }
-                } else {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "No stream URL available",
-                            color = Color.White
-                        )
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No stream URL available",
+                                color = Color.White
+                            )
+                        }
                     }
                 }
 
-                // Stream info overlay
-                currentStream?.let { s ->
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(24.dp)
-                            .background(
-                                Color.Black.copy(alpha = 0.6f),
-                                RoundedCornerShape(8.dp)
-                            )
-                            .padding(16.dp)
+                // Zap Chyron Footer (below video)
+                ZapChyron(
+                    zapReceipts = zapReceipts,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            // Chat Area (17%)
+            ChatPanel(
+                messages = chatMessages,
+                onSendMessage = { message ->
+                    // TODO: Implement send message via remote signer
+                    Log.d("PlayerScreen", "Send message: $message")
+                },
+                modifier = Modifier
+                    .weight(0.17f)
+                    .fillMaxHeight()
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun StreamInfoHeader(
+    stream: LiveStream?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    androidx.tv.material3.Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(
+            shape = RoundedCornerShape(0.dp)
+        ),
+        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+            containerColor = Color.Black.copy(alpha = 0.8f),
+            focusedContainerColor = Color.Black.copy(alpha = 0.9f)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            stream?.let { s ->
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = s.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                        maxLines = 1
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = s.title,
-                            style = MaterialTheme.typography.titleLarge,
-                            color = Color.White
-                        )
-                        Text(
                             text = s.streamerName ?: "Unknown streamer",
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.7f)
                         )
                         if (s.viewerCount > 0) {
@@ -157,25 +221,14 @@ fun PlayerScreen(
                         }
                     }
                 }
-
-                // Zap Chyron at the bottom of the video player
-                ZapChyron(
-                    zapReceipts = zapReceipts,
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                )
-            }
-
-            // Chat Panel
-            if (showChat) {
-                ChatPanel(
-                    messages = chatMessages,
-                    modifier = Modifier
-                        .weight(0.3f)
-                        .fillMaxHeight()
+            } ?: run {
+                Text(
+                    text = "Loading...",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White.copy(alpha = 0.5f)
                 )
             }
         }
-
     }
 }
 
@@ -183,9 +236,12 @@ fun PlayerScreen(
 @Composable
 fun ChatPanel(
     messages: List<ChatMessage>,
+    onSendMessage: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
+    var showMessages by remember { mutableStateOf(true) }
+    var messageText by remember { mutableStateOf("") }
 
     // Auto-scroll to bottom when new messages arrive
     LaunchedEffect(messages.size) {
@@ -196,38 +252,173 @@ fun ChatPanel(
 
     Column(
         modifier = modifier
+            .background(Color.Black.copy(alpha = 0.9f))
+    ) {
+        // Chat Header with hide/show button
+        ChatHeader(
+            showMessages = showMessages,
+            onToggleMessages = { showMessages = !showMessages },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        // Chat Message List (hideable)
+        if (showMessages) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp)
+            ) {
+                if (messages.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No messages yet",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.5f)
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        reverseLayout = true,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(messages, key = { it.id }) { message ->
+                            ChatMessageItem(message)
+                        }
+                    }
+                }
+            }
+        } else {
+            // Collapsed state - just show a spacer
+            Spacer(modifier = Modifier.weight(1f))
+        }
+
+        // Chat Footer with input controls
+        ChatFooter(
+            messageText = messageText,
+            onMessageChange = { messageText = it },
+            onSend = {
+                if (messageText.isNotBlank()) {
+                    onSendMessage(messageText)
+                    messageText = ""
+                }
+            },
+            onCancel = { messageText = "" },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun ChatHeader(
+    showMessages: Boolean,
+    onToggleMessages: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
             .background(Color.Black.copy(alpha = 0.8f))
-            .padding(16.dp)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
             text = "Live Chat",
-            style = MaterialTheme.typography.titleMedium,
-            color = Color.White,
-            modifier = Modifier.padding(bottom = 16.dp)
+            style = MaterialTheme.typography.titleSmall,
+            color = Color.White
         )
 
-        if (messages.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "No messages yet",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.5f)
+        IconButton(
+            onClick = onToggleMessages,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                imageVector = if (showMessages) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                contentDescription = if (showMessages) "Hide chat" else "Show chat",
+                tint = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun ChatFooter(
+    messageText: String,
+    onMessageChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .background(Color.Black.copy(alpha = 0.8f))
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        // Text input
+        BasicTextField(
+            value = messageText,
+            onValueChange = onMessageChange,
+            modifier = Modifier
+                .weight(1f)
+                .background(
+                    Color.White.copy(alpha = 0.1f),
+                    RoundedCornerShape(8.dp)
                 )
-            }
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                reverseLayout = true,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(messages, key = { it.id }) { message ->
-                    ChatMessageItem(message)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            textStyle = TextStyle(
+                color = Color.White,
+                fontSize = MaterialTheme.typography.bodySmall.fontSize
+            ),
+            cursorBrush = SolidColor(Color.White),
+            singleLine = true,
+            decorationBox = { innerTextField ->
+                Box {
+                    if (messageText.isEmpty()) {
+                        Text(
+                            text = "Type a message...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.4f)
+                        )
+                    }
+                    innerTextField()
                 }
             }
+        )
+
+        // Send button
+        IconButton(
+            onClick = onSend,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Send,
+                contentDescription = "Send message",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        // Cancel button
+        IconButton(
+            onClick = onCancel,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Cancel",
+                tint = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }
@@ -242,9 +433,9 @@ fun ChatMessageItem(message: ChatMessage) {
             .fillMaxWidth()
             .background(
                 Color.White.copy(alpha = 0.05f),
-                RoundedCornerShape(8.dp)
+                RoundedCornerShape(6.dp)
             )
-            .padding(8.dp)
+            .padding(6.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -252,7 +443,7 @@ fun ChatMessageItem(message: ChatMessage) {
         ) {
             Text(
                 text = message.authorName ?: message.pubkey.take(8) + "...",
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary
             )
             Text(
@@ -261,10 +452,10 @@ fun ChatMessageItem(message: ChatMessage) {
                 color = Color.White.copy(alpha = 0.5f)
             )
         }
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = message.content,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodySmall,
             color = Color.White
         )
     }
