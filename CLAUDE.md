@@ -220,7 +220,7 @@ Each checkpoint: manually test, commit, include short PR description.
 | 6 | Chat Manager (Read) | `feature/chat-read` | None | Pending |
 | 7 | Chat Send | `feature/chat-send` | #1, #6 | Pending |
 | 8 | Presence Events | `feature/presence` | #1 | Pending |
-| 9 | Zap Chyron | `feature/zap-chyron` | None | Pending |
+| 9 | Zap Chyron | `feature/zap-chyron` | None | **Done** |
 | 10 | Streamer Profile + Zap Flow | `feature/zap-flow` | #1 | Pending |
 
 ### Feature Details
@@ -318,25 +318,33 @@ Building a **TV-first, decentralized media client**. Proceed incrementally.
 
 ## Session Notes
 
-### Last Session (Jan 2025)
-**Branch:** `feature/stream-thumbnails`
-**PR:** #1 (pending merge to main)
+### Last Session (Jan 17, 2025)
+**Branch:** `main`
+**PRs:** #1, #2, #3 (all merged)
 
 **Completed:**
-- NIP-46 remote signing with QR code flow
-- NIP-44 encryption (ChaCha20 + HMAC-SHA256)
-- User profile page with two-column TV layout
-- Profile metadata fetching (kind 0)
-- Stream card thumbnails with Coil
-- Gradient overlay, LIVE badge, viewer count
-- Streamer profile pictures on cards
-- Stream deduplication (one per pubkey)
-- Shared NostrClient singleton
+- Zap Chyron feature (PR #2)
+  - Kind 9735 zap receipt parsing with sender profile enrichment
+  - Single zap display with 3-second cycling animation
+  - Format: ⚡ [pic] **Name** zapped the stream **X sats** and said: message
+  - Left-aligned, vertically centered, 48dp height
+- Stream View layout restructure (PR #3)
+  - Stream Info Header moved above video (clickable, TV focus support)
+  - Zap Chyron moved below video (non-overlapping)
+  - 83%/17% width ratio for video/chat areas
+  - Chat header with hide/show toggle button
+  - Chat footer with text input, send button, cancel button
+  - Added material-icons-extended dependency
+- Added End of Session Routine to CLAUDE.md
+
+**Issues Discovered:**
+- None new (NIP-46 pubkey issue still pending - see Known Issues)
 
 **Next session should:**
-1. Merge PR #1 to main
-2. Fix NIP-46 pubkey issue (see Known Issues above)
-3. Continue with Admin Curated Streams or Chat features
+1. Fix NIP-46 pubkey issue (critical for user features)
+2. Implement Chat Manager (Read) - kind 1311 messages for streams
+3. Implement Chat Send via NIP-46 bunker
+4. Consider Admin Curated Streams feature
 
 ## End of Session Routine
 
