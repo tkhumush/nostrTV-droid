@@ -54,5 +54,17 @@ data class ZapReceipt(
     val recipientPubkey: String,
     val amountMilliSats: Long,
     val createdAt: Long,
-    val senderName: String? = null
-)
+    val senderName: String? = null,
+    val senderPicture: String? = null,
+    val message: String? = null
+) {
+    val amountSats: Long
+        get() = amountMilliSats / 1000
+
+    val formattedAmount: String
+        get() = when {
+            amountSats >= 1_000_000 -> "${amountSats / 1_000_000}M"
+            amountSats >= 1_000 -> "${amountSats / 1_000}K"
+            else -> "$amountSats"
+        }
+}

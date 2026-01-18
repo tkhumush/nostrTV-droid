@@ -11,8 +11,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 
 /**
  * NostrClient handles connections to Nostr relays and manages subscriptions.
@@ -252,8 +254,82 @@ class NostrClient {
     }
 
     private fun handleZapReceiptEvent(subscriptionId: String, event: NostrEvent) {
-        // Parse zap receipt - will be fully implemented in Zaps checkpoint
         Log.d(TAG, "Received zap receipt: ${event.id}")
+
+        val streamKey = subscriptionId.removePrefix(ZAPS_SUB_PREFIX)
+        val zapReceipt = parseZapReceiptEvent(event)
+
+        if (zapReceipt != null) {
+            _zapReceipts.update { current ->
+                val zaps = current[streamKey]?.toMutableList() ?: mutableListOf()
+                if (zaps.none { it.id == zapReceipt.id }) {
+                    zaps.add(zapReceipt)
+                    zaps.sortByDescending { it.createdAt }
+                    // Keep only the latest 50 zaps
+                    if (zaps.size > 50) {
+                        zaps.removeAt(zaps.lastIndex)
+                    }
+                }
+                current + (streamKey to zaps)
+            }
+
+            // Fetch sender profile if we don't have it
+            zapReceipt.senderPubkey?.let { pubkey ->
+                if (pubkey !in _profiles.value) {
+                    fetchProfiles(listOf(pubkey))
+                }
+            }
+        }
+    }
+
+    private fun parseZapReceiptEvent(event: NostrEvent): ZapReceipt? {
+        return try {
+            val bolt11 = event.getTagValue("bolt11") ?: ""
+            val preimage = event.getTagValue("preimage")
+            val descriptionJson = event.getTagValue("description") ?: return null
+
+            // Parse the zap request from description
+            val zapRequest = Json.parseToJsonElement(descriptionJson).jsonObject
+
+            // Get sender pubkey from the zap request
+            val senderPubkey = zapRequest["pubkey"]?.jsonPrimitive?.content
+
+            // Get recipient from p tag
+            val recipientPubkey = event.getTagValue("p") ?: ""
+
+            // Get amount from the zap request's amount tag or parse from bolt11
+            var amountMilliSats = 0L
+            val zapRequestTags = zapRequest["tags"]?.jsonArray
+            zapRequestTags?.forEach { tag ->
+                val tagArray = tag.jsonArray
+                if (tagArray.size >= 2 && tagArray[0].jsonPrimitive.content == "amount") {
+                    amountMilliSats = tagArray[1].jsonPrimitive.content.toLongOrNull() ?: 0L
+                }
+            }
+
+            // Get message from zap request content
+            val message = zapRequest["content"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+
+            // Get sender profile if available
+            val senderProfile = senderPubkey?.let { _profiles.value[it] }
+
+            ZapReceipt(
+                id = event.id,
+                bolt11 = bolt11,
+                preimage = preimage,
+                description = descriptionJson,
+                senderPubkey = senderPubkey,
+                recipientPubkey = recipientPubkey,
+                amountMilliSats = amountMilliSats,
+                createdAt = event.createdAt,
+                senderName = senderProfile?.displayNameOrName,
+                senderPicture = senderProfile?.picture,
+                message = message
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse zap receipt event", e)
+            null
+        }
     }
 
     fun subscribeToLiveStreams(): Flow<List<LiveStream>> {
@@ -287,8 +363,9 @@ class NostrClient {
     }
 
     fun subscribeToZapReceipts(streamATag: String): Flow<List<ZapReceipt>> {
-        val subscriptionId = "$ZAPS_SUB_PREFIX${streamATag.hashCode()}"
-        Log.d(TAG, "Subscribing to zaps for stream: $streamATag")
+        val streamKey = streamATag.hashCode().toString()
+        val subscriptionId = "$ZAPS_SUB_PREFIX$streamKey"
+        Log.d(TAG, "Subscribing to zaps for stream: $streamATag (key: $streamKey)")
 
         val filter = NostrFilter(
             kinds = listOf(NostrProtocol.KIND_ZAP_RECEIPT),
@@ -299,7 +376,22 @@ class NostrClient {
         val subscriptionMessage = NostrProtocol.createSubscription(subscriptionId, filter)
         broadcast(subscriptionMessage)
 
-        return MutableStateFlow(_zapReceipts.value[streamATag.hashCode().toString()] ?: emptyList())
+        // Return a flow that observes zap receipts for this stream
+        return _zapReceipts.asStateFlow().map { zapsMap ->
+            val zaps = zapsMap[streamKey] ?: emptyList()
+            // Enrich zaps with updated profile info
+            zaps.map { zap ->
+                val profile = zap.senderPubkey?.let { _profiles.value[it] }
+                if (profile != null && (zap.senderName != profile.displayNameOrName || zap.senderPicture != profile.picture)) {
+                    zap.copy(
+                        senderName = profile.displayNameOrName,
+                        senderPicture = profile.picture
+                    )
+                } else {
+                    zap
+                }
+            }
+        }
     }
 
     fun getProfile(pubkey: String): Profile? {
