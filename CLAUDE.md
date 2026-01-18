@@ -27,6 +27,38 @@ Core capabilities:
 - Track viewer presence (NIP-53)
 - Show streamer profiles and zap activity overlays
 
+## Known Issues
+
+### NIP-46 Pubkey Problem (Critical)
+The bunker authentication flow works but returns the **wrong pubkey**. When the bunker sends the `connect` response, it returns a SECRET as the result instead of the user's actual pubkey.
+
+**Attempted fix:** Call `get_public_key` to verify the correct pubkey after connect, but the bunker returns "Failed to decrypt content" - this suggests a NIP-44 encryption compatibility issue between our implementation and the bunker.
+
+**Current workaround:** Using the bunker's pubkey as a temporary user identifier. Login completes but profile fetching retrieves the bunker's profile instead of the user's profile.
+
+**Files to investigate:**
+- `BunkerAuthManager.kt` - lines ~280-350 (handleConnectAck, verifyAndCorrectPubkey)
+- `NostrCrypto.kt` - NIP-44 encryption implementation
+
+**Symptoms:**
+- User logs in successfully (QR code scanned, bunker connected)
+- Profile page shows "Loading..." or wrong profile
+- Debug logs show profile fetch for wrong pubkey
+
+**Potential causes:**
+1. NIP-44 encryption mismatch (ChaCha20 implementation differs from bunker)
+2. Conversation key derivation issue
+3. Nonce handling difference
+
+### Relays
+Default relays in `NostrClient.kt`:
+- wss://relay.damus.io
+- wss://relay.nostr.band
+- wss://relay.snort.social
+- wss://nostr.wine
+- wss://relay.primal.net
+- wss://purplepag.es (dedicated kind 0 relay)
+
 ## Nostr Protocol Reference
 
 | Feature | Nostr Kind / Spec |
@@ -180,11 +212,11 @@ Each checkpoint: manually test, commit, include short PR description.
 
 | # | Feature | Branch | Dependencies | Status |
 |---|---------|--------|--------------|--------|
-| 1 | NIP-46 Remote Sign-in | `feature/nip46-auth` | None | Pending |
-| 2 | User Profile Page | `feature/user-profile` | #1 | Pending |
+| 1 | NIP-46 Remote Sign-in | `feature/nip46-auth` | None | **Done** |
+| 2 | User Profile Page | `feature/stream-thumbnails` | #1 | **Done** |
 | 3 | Admin Curated Streams | `feature/curated-streams` | None | Pending |
 | 4 | Following Section | `feature/following` | #1, #3 | Pending |
-| 5 | Stream Card Thumbnails | `feature/thumbnails` | None | Pending |
+| 5 | Stream Card Thumbnails | `feature/stream-thumbnails` | None | **Done** |
 | 6 | Chat Manager (Read) | `feature/chat-read` | None | Pending |
 | 7 | Chat Send | `feature/chat-send` | #1, #6 | Pending |
 | 8 | Presence Events | `feature/presence` | #1 | Pending |
@@ -283,3 +315,36 @@ const val ADMIN_PUBKEY = "YOUR_ADMIN_PUBKEY_HERE"
 - Treat Nostr event correctness as critical
 
 Building a **TV-first, decentralized media client**. Proceed incrementally.
+
+## Session Notes
+
+### Last Session (Jan 2025)
+**Branch:** `feature/stream-thumbnails`
+**PR:** #1 (pending merge to main)
+
+**Completed:**
+- NIP-46 remote signing with QR code flow
+- NIP-44 encryption (ChaCha20 + HMAC-SHA256)
+- User profile page with two-column TV layout
+- Profile metadata fetching (kind 0)
+- Stream card thumbnails with Coil
+- Gradient overlay, LIVE badge, viewer count
+- Streamer profile pictures on cards
+- Stream deduplication (one per pubkey)
+- Shared NostrClient singleton
+
+**Next session should:**
+1. Merge PR #1 to main
+2. Fix NIP-46 pubkey issue (see Known Issues above)
+3. Continue with Admin Curated Streams or Chat features
+
+## Build Commands
+
+```bash
+./gradlew assembleDebug    # Build debug APK
+./gradlew installDebug     # Install on connected device
+```
+
+## Remote Repository
+
+https://github.com/tkhumush/nostrTV-droid.git
