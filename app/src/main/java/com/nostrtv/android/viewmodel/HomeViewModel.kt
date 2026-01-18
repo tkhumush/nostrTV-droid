@@ -68,11 +68,18 @@ class HomeViewModel : ViewModel() {
                 nostrClient.subscribeToLiveStreams()
                     .collect { streamList ->
                         Log.d(TAG, "Received ${streamList.size} streams")
-                        _streams.value = streamList.filter { it.status == "live" }
+
+                        // Filter live streams, sort by most recent, keep only one per pubkey
+                        val dedupedStreams = streamList
+                            .filter { it.status == "live" }
                             .sortedByDescending { it.createdAt }
+                            .distinctBy { it.pubkey }
+
+                        Log.d(TAG, "After dedup: ${dedupedStreams.size} unique streams")
+                        _streams.value = dedupedStreams
 
                         // Fetch profiles for streamers
-                        val pubkeys = streamList.mapNotNull { it.streamerPubkey }.distinct()
+                        val pubkeys = dedupedStreams.mapNotNull { it.streamerPubkey }.distinct()
                         nostrClient.fetchProfiles(pubkeys)
                     }
             } catch (e: Exception) {
