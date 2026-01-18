@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import com.nostrtv.android.data.nostr.ConnectionState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -28,6 +29,7 @@ import androidx.tv.material3.Card
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nostrtv.android.data.auth.SessionStore
 import com.nostrtv.android.data.nostr.LiveStream
 import com.nostrtv.android.viewmodel.HomeViewModel
 
@@ -38,6 +40,10 @@ fun HomeScreen(
     onProfileClick: () -> Unit,
     viewModel: HomeViewModel = viewModel()
 ) {
+    val context = LocalContext.current
+    val sessionStore = SessionStore(context)
+    val savedSession = sessionStore.getSavedSession()
+
     val streams by viewModel.streams.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
@@ -62,7 +68,14 @@ fun HomeScreen(
             )
 
             Button(onClick = onProfileClick) {
-                Text("Profile")
+                Text(
+                    if (savedSession != null) {
+                        val pubkey = savedSession.userPubkey
+                        "${pubkey.take(8)}..."
+                    } else {
+                        "Sign In"
+                    }
+                )
             }
         }
 

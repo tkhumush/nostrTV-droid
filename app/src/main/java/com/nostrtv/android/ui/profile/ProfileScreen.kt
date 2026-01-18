@@ -52,6 +52,21 @@ fun ProfileScreen(
 ) {
     val authState by viewModel.authState.collectAsState()
     val connectionString by viewModel.connectionString.collectAsState()
+    var previousState by remember { mutableStateOf<AuthState?>(null) }
+    var isNewLogin by remember { mutableStateOf(false) }
+
+    // Auto-navigate back when login succeeds (transition from non-authenticated to authenticated)
+    LaunchedEffect(authState) {
+        if (authState is AuthState.Authenticated &&
+            previousState != null &&
+            previousState !is AuthState.Authenticated) {
+            isNewLogin = true
+            // Small delay to show success before navigating
+            kotlinx.coroutines.delay(1500)
+            onBack()
+        }
+        previousState = authState
+    }
 
     Box(
         modifier = Modifier
@@ -106,7 +121,8 @@ fun ProfileScreen(
                 is AuthState.Authenticated -> {
                     AuthenticatedContent(
                         pubkey = state.pubkey,
-                        onLogout = { viewModel.logout() }
+                        onLogout = { viewModel.logout() },
+                        isNewLogin = isNewLogin
                     )
                 }
 
@@ -225,7 +241,8 @@ fun WaitingForConnectionContent(
 @Composable
 fun AuthenticatedContent(
     pubkey: String,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    isNewLogin: Boolean = false
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -234,11 +251,27 @@ fun AuthenticatedContent(
     ) {
         Spacer(modifier = Modifier.height(64.dp))
 
-        Text(
-            text = "Connected",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.primary
-        )
+        if (isNewLogin) {
+            Text(
+                text = "Login Successful!",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "Returning to streams...",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+            )
+        } else {
+            Text(
+                text = "Signed In",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -256,8 +289,10 @@ fun AuthenticatedContent(
 
         Spacer(modifier = Modifier.height(48.dp))
 
-        Button(onClick = onLogout) {
-            Text("Logout")
+        if (!isNewLogin) {
+            Button(onClick = onLogout) {
+                Text("Logout")
+            }
         }
     }
 }

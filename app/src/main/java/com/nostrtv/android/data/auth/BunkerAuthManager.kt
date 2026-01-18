@@ -204,39 +204,66 @@ class BunkerAuthManager(
     private fun handleNip46Event(event: NostrEvent) {
         val clientKeyPair = this.clientKeyPair ?: return
 
-        Log.d(TAG, "Received NIP-46 event from: ${event.pubkey}")
-        Log.d(TAG, "Event content (first 100 chars): ${event.content.take(100)}")
+        Log.w(TAG, "Received NIP-46 event from: ${event.pubkey}")
+        Log.w(TAG, "Event content (first 100 chars): ${event.content.take(100)}")
 
         try {
             // Try to detect encryption type and decrypt
             val decrypted = tryDecrypt(event.content, clientKeyPair.privateKey, event.pubkey)
 
-            Log.d(TAG, "Decrypted NIP-46 message: $decrypted")
+            Log.w(TAG, "Decrypted NIP-46 message: $decrypted")
 
             val response = json.parseToJsonElement(decrypted).jsonObject
+            Log.w(TAG, "Parsed JSON response: $response")
+
             val id = response["id"]?.jsonPrimitive?.content
             val result = response["result"]?.jsonPrimitive?.content
             val error = response["error"]?.jsonPrimitive?.content
 
+            Log.w(TAG, "Response id: $id, result: $result, error: $error")
+
             // Check if this is a response to a pending request
             if (id != null && pendingRequests.containsKey(id)) {
+                Log.w(TAG, "Found pending request for id: $id")
                 val callback = pendingRequests.remove(id)
                 callback?.invoke(Nip46Response(id, result, error))
                 return
             }
 
             // Check if this is a "connect" ack (signer confirming connection)
-            if (result == "ack" || result?.startsWith("ack") == true) {
-                Log.d(TAG, "Received connect acknowledgment from bunker")
+            // NIP-46 spec: result can be "ack" or the user's pubkey directly
+            if (result == "ack" || result?.startsWith("ack") == true ||
+                (result != null && result.length == 64 && result.all { it.isLetterOrDigit() })) {
+                Log.w(TAG, "Received connect acknowledgment from bunker")
                 bunkerPubkey = event.pubkey
 
-                // Request the user's public key
-                scope.launch {
-                    requestUserPubkey()
+                // If result is a 64-char hex string, it's the user's pubkey directly
+                if (result != null && result.length == 64 && result.all { it.isLetterOrDigit() }) {
+                    Log.w(TAG, "Result contains user pubkey directly: $result")
+                    _userPubkey.value = result
+                    _authState.value = AuthState.Authenticated(result)
+
+                    // Save session
+                    sessionStore.saveSession(
+                        pubkey = result,
+                        bunkerPubkey = bunkerPubkey!!,
+                        clientPrivateKey = clientKeyPair.privateKey,
+                        relay = relayUrl,
+                        secret = secret!!
+                    )
+                } else {
+                    // Request the user's public key
+                    Log.w(TAG, "Requesting user's public key from bunker")
+                    scope.launch {
+                        requestUserPubkey()
+                    }
                 }
+            } else {
+                Log.w(TAG, "Response did not match expected patterns - result: $result")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to process NIP-46 event", e)
+            e.printStackTrace()
         }
     }
 
@@ -244,10 +271,12 @@ class BunkerAuthManager(
      * Request user's public key from bunker.
      */
     private suspend fun requestUserPubkey() {
+        Log.w(TAG, "requestUserPubkey() called")
         val response = sendRequest("get_public_key", emptyList())
+        Log.w(TAG, "requestUserPubkey() got response: $response")
         if (response?.result != null) {
             val userPubkey = response.result
-            Log.d(TAG, "Got user pubkey: $userPubkey")
+            Log.w(TAG, "Got user pubkey: $userPubkey")
 
             _userPubkey.value = userPubkey
             _authState.value = AuthState.Authenticated(userPubkey)
@@ -284,7 +313,7 @@ class BunkerAuthManager(
             }))
         }.toString()
 
-        Log.d(TAG, "Sending NIP-46 request: $requestJson")
+        Log.w(TAG, "Sending NIP-46 request: $requestJson")
 
         // Encrypt with NIP-44 (required by NIP-46 spec)
         val encrypted = NostrCrypto.encryptNip44(
