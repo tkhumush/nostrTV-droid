@@ -14,11 +14,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Send
@@ -357,70 +364,13 @@ fun ChatFooter(
     onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    // TODO: Re-enable chat input when Chat Send feature is implemented
+    Box(
         modifier = modifier
             .background(Color.Black.copy(alpha = 0.8f))
-            .padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        // Text input
-        BasicTextField(
-            value = messageText,
-            onValueChange = onMessageChange,
-            modifier = Modifier
-                .weight(1f)
-                .background(
-                    Color.White.copy(alpha = 0.1f),
-                    RoundedCornerShape(8.dp)
-                )
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            textStyle = TextStyle(
-                color = Color.White,
-                fontSize = MaterialTheme.typography.bodySmall.fontSize
-            ),
-            cursorBrush = SolidColor(Color.White),
-            singleLine = true,
-            decorationBox = { innerTextField ->
-                Box {
-                    if (messageText.isEmpty()) {
-                        Text(
-                            text = "Type a message...",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.4f)
-                        )
-                    }
-                    innerTextField()
-                }
-            }
-        )
-
-        // Send button
-        IconButton(
-            onClick = onSend,
-            modifier = Modifier.size(32.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Send,
-                contentDescription = "Send message",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-
-        // Cancel button
-        IconButton(
-            onClick = onCancel,
-            modifier = Modifier.size(32.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = "Cancel",
-                tint = Color.White.copy(alpha = 0.7f),
-                modifier = Modifier.size(18.dp)
-            )
-        }
-    }
+            .padding(8.dp)
+            .height(32.dp)
+    )
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -437,22 +387,58 @@ fun ChatMessageItem(message: ChatMessage) {
             )
             .padding(6.dp)
     ) {
+        // Row 1: Avatar + Name/Time
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = message.authorName ?: message.pubkey.take(8) + "...",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Text(
-                text = timeFormat.format(Date(message.createdAt * 1000)),
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.5f)
-            )
+            // Avatar
+            if (!message.authorPicture.isNullOrEmpty()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(message.authorPicture)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "Author avatar",
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                // Placeholder avatar
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = (message.authorName?.firstOrNull() ?: message.pubkey.firstOrNull() ?: '?').uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White
+                    )
+                }
+            }
+
+            // Name and timestamp stacked
+            Column {
+                Text(
+                    text = message.authorName ?: message.pubkey.take(8) + "...",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = timeFormat.format(Date(message.createdAt * 1000)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.5f)
+                )
+            }
         }
-        Spacer(modifier = Modifier.height(2.dp))
+
+        // Row 2: Content (full width)
+        Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = message.content,
             style = MaterialTheme.typography.bodySmall,

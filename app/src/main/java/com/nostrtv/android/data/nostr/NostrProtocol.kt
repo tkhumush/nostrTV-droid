@@ -35,10 +35,11 @@ object NostrProtocol {
     const val KIND_ENCRYPTED_DM = 4
     const val KIND_DELETE = 5
     const val KIND_REACTION = 7
+    const val KIND_LIVE_CHAT = 1311      // NIP-53 live chat message
     const val KIND_ZAP_REQUEST = 9734
     const val KIND_ZAP_RECEIPT = 9735
+    const val KIND_PRESENCE = 10312       // NIP-53 presence
     const val KIND_LIVE_EVENT = 30311
-    const val KIND_PRESENCE = 10312
 
     /**
      * Create a subscription request (REQ)
