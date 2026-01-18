@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nostrtv.android.data.nostr.ChatMessage
 import com.nostrtv.android.data.nostr.LiveStream
-import com.nostrtv.android.data.nostr.NostrClient
+import com.nostrtv.android.data.nostr.NostrClientProvider
 import com.nostrtv.android.data.nostr.ZapReceipt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,7 +17,7 @@ class PlayerViewModel : ViewModel() {
         private const val TAG = "PlayerViewModel"
     }
 
-    private val nostrClient = NostrClient()
+    private val nostrClient = NostrClientProvider.instance
 
     private val _stream = MutableStateFlow<LiveStream?>(null)
     val stream: StateFlow<LiveStream?> = _stream.asStateFlow()
@@ -48,8 +48,6 @@ class PlayerViewModel : ViewModel() {
     private fun subscribeToStreamData(aTag: String) {
         viewModelScope.launch {
             try {
-                nostrClient.connect()
-
                 // Subscribe to chat messages
                 launch {
                     nostrClient.subscribeToChatMessages(aTag)
@@ -83,6 +81,6 @@ class PlayerViewModel : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         publishPresence(false)
-        nostrClient.disconnect()
+        // Don't disconnect - shared NostrClient is managed by HomeViewModel
     }
 }

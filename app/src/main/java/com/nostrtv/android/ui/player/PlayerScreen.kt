@@ -54,6 +54,7 @@ fun PlayerScreen(
 ) {
     val currentStream by viewModel.stream.collectAsState()
     val chatMessages by viewModel.chatMessages.collectAsState()
+    val zapReceipts by viewModel.zapReceipts.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
     var showChat by remember { mutableStateOf(true) }
@@ -156,6 +157,12 @@ fun PlayerScreen(
                         }
                     }
                 }
+
+                // Zap Chyron at the bottom of the video player
+                ZapChyron(
+                    zapReceipts = zapReceipts,
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
             }
 
             // Chat Panel
@@ -169,15 +176,6 @@ fun PlayerScreen(
             }
         }
 
-        // Controls hint
-        Text(
-            text = "← Back | → Toggle Chat",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.5f),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(16.dp)
-        )
     }
 }
 
