@@ -49,6 +49,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
@@ -422,13 +423,13 @@ fun ChatMessageItem(message: ChatMessage) {
             .fillMaxWidth()
             .background(
                 Color.White.copy(alpha = 0.05f),
-                RoundedCornerShape(6.dp)
+                RoundedCornerShape(3.dp)
             )
-            .padding(6.dp)
+            .padding(3.dp)
     ) {
         // Row 1: Avatar + Name/Time
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Avatar
@@ -440,7 +441,7 @@ fun ChatMessageItem(message: ChatMessage) {
                         .build(),
                     contentDescription = "Author avatar",
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(14.dp)
                         .clip(CircleShape),
                     contentScale = ContentScale.Crop
                 )
@@ -448,39 +449,37 @@ fun ChatMessageItem(message: ChatMessage) {
                 // Placeholder avatar
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(14.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = (message.authorName?.firstOrNull() ?: message.pubkey.firstOrNull() ?: '?').uppercase(),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = TextStyle(fontSize = 6.sp),
                         color = Color.White
                     )
                 }
             }
 
-            // Name and timestamp stacked
-            Column {
-                Text(
-                    text = message.authorName ?: message.pubkey.take(8) + "...",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = timeFormat.format(Date(message.createdAt * 1000)),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.5f)
-                )
-            }
+            // Name and timestamp inline
+            Text(
+                text = message.authorName ?: message.pubkey.take(8) + "...",
+                style = TextStyle(fontSize = 6.sp),
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = timeFormat.format(Date(message.createdAt * 1000)),
+                style = TextStyle(fontSize = 6.sp),
+                color = Color.White.copy(alpha = 0.5f)
+            )
         }
 
         // Row 2: Content (full width)
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = message.content,
-            style = MaterialTheme.typography.bodySmall,
+            style = TextStyle(fontSize = 6.sp),
             color = Color.White
         )
     }
