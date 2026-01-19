@@ -76,6 +76,9 @@ class RemoteSignerManager(
     private val _userPubkey = MutableStateFlow<String?>(null)
     val userPubkey: StateFlow<String?> = _userPubkey.asStateFlow()
 
+    // Track if WebSocket is connected and subscribed
+    private val _isRelayReady = MutableStateFlow(false)
+
     init {
         // Try to restore session on init
         restoreSession()
@@ -127,27 +130,31 @@ class RemoteSignerManager(
      * Connect to relay via WebSocket.
      */
     private fun connectToRelay() {
+        Log.w("presence", "RemoteSignerManager.connectToRelay() called, url: $relayUrl")
         val request = Request.Builder()
             .url(relayUrl)
             .build()
 
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d(TAG, "Connected to relay: $relayUrl")
+                Log.w("presence", "WebSocket OPENED to relay: $relayUrl")
                 subscribeToNip46Events()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                Log.w("presence", "WebSocket message received: ${text.take(150)}...")
                 handleRelayMessage(text)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "WebSocket error", t)
+                Log.w("presence", "WebSocket FAILED: ${t.message}")
+                _isRelayReady.value = false
                 _authState.value = AuthState.Error("Connection failed: ${t.message}")
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(TAG, "WebSocket closed: $reason")
+                Log.w("presence", "WebSocket CLOSED: $reason")
+                _isRelayReady.value = false
             }
         })
     }
@@ -156,12 +163,20 @@ class RemoteSignerManager(
      * Subscribe to NIP-46 events addressed to our client pubkey.
      */
     private fun subscribeToNip46Events() {
-        val pubkey = clientPublicKey ?: return
+        val pubkey = clientPublicKey
+        Log.w("presence", "subscribeToNip46Events called, clientPublicKey: ${pubkey?.take(16)}")
+        if (pubkey == null) {
+            Log.w("presence", "Cannot subscribe - clientPublicKey is null!")
+            return
+        }
         val since = System.currentTimeMillis() / 1000 - 60
 
         val subMessage = """["REQ","nip46",{"kinds":[$KIND_NIP46],"#p":["$pubkey"],"since":$since}]"""
-        webSocket?.send(subMessage)
-        Log.d(TAG, "Subscribed to NIP-46 events")
+        Log.w("presence", "Sending NIP-46 subscription: $subMessage")
+        val sent = webSocket?.send(subMessage)
+        Log.w("presence", "NIP-46 subscription sent: $sent")
+        _isRelayReady.value = true
+        Log.w("presence", "Relay is now READY for sign requests")
     }
 
     /**
@@ -247,9 +262,9 @@ class RemoteSignerManager(
                     Log.d(TAG, "No matching pending request for id: $requestId")
                 }
 
-                // Check if this is a connect acknowledgment
+                // Check if this is a connect acknowledgment (only during initial login, not when already authenticated)
                 val result = response.result
-                if (result == "ack" || result == secret) {
+                if ((result == "ack" || result == secret) && _authState.value !is AuthState.Authenticated) {
                     Log.d(TAG, "Received connect acknowledgment")
                     bunkerPubkey = senderPubkey
                     _authState.value = AuthState.Connecting
@@ -266,6 +281,10 @@ class RemoteSignerManager(
                         Log.e(TAG, "Error getting public key", e)
                         _authState.value = AuthState.Error("Failed to get public key: ${e.message}")
                     }
+                } else if ((result == "ack" || result == secret) && _authState.value is AuthState.Authenticated) {
+                    Log.w("presence", "Ignoring ack - already authenticated, bunker reconnected")
+                    // Just update bunkerPubkey in case it changed
+                    bunkerPubkey = senderPubkey
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error handling NIP-46 event", e)
@@ -310,15 +329,18 @@ class RemoteSignerManager(
 
     /**
      * Send a NIP-46 request to the bunker.
+     * Per NIP-46, all params should be JSON strings (even JSON objects must be stringified).
      */
     private suspend fun sendNip46Request(requestId: String, method: String, params: List<String>) {
         val bunkerPubkey = this.bunkerPubkey ?: return
         val privKey = this.clientPrivateKey ?: return
         val pubkey = this.clientPublicKey ?: return
 
-        val paramsJson = params.joinToString(",") { "\"$it\"" }
+        // All params are passed as JSON strings - escape and quote each one
+        val paramsJson = params.joinToString(",") { "\"${escapeJson(it)}\"" }
         val request = """{"id":"$requestId","method":"$method","params":[$paramsJson]}"""
 
+        Log.w("presence", "NIP-46 request payload: $request")
         Log.d(TAG, "Sending NIP-46 request: $method")
 
         // Encrypt with NIP-44 using Quartz's NostrSignerInternal
@@ -338,10 +360,11 @@ class RemoteSignerManager(
         // Build the event JSON
         val eventJson = """["EVENT",{"id":"$eventId","pubkey":"$pubkey","created_at":$createdAt,"kind":$KIND_NIP46,"tags":[["p","$bunkerPubkey"]],"content":"${escapeJson(encrypted)}","sig":"$signature"}]"""
 
-        Log.d(TAG, "Sending event to relay, id: ${eventId.take(16)}...")
-        Log.d(TAG, "Event JSON length: ${eventJson.length}")
+        Log.w("presence", "Sending event to relay, id: ${eventId.take(16)}...")
+        Log.w("presence", "Event JSON length: ${eventJson.length}")
+        Log.w("presence", "WebSocket state: ${webSocket != null}")
         val sent = webSocket?.send(eventJson)
-        Log.d(TAG, "Sent NIP-46 request: $method, websocket.send returned: $sent")
+        Log.w("presence", "WebSocket.send() returned: $sent")
     }
 
     /**
@@ -387,18 +410,27 @@ class RemoteSignerManager(
      * Restore session from storage.
      */
     fun restoreSession(): Boolean {
-        val session = sessionStore.getSavedSession() ?: return false
+        Log.w("presence", "restoreSession() called")
+        val session = sessionStore.getSavedSession()
+        if (session == null) {
+            Log.w("presence", "No saved session found")
+            return false
+        }
 
-        Log.d(TAG, "Restoring session for user: ${session.userPubkey.take(16)}...")
+        Log.w("presence", "Restoring session for user: ${session.userPubkey.take(16)}...")
+        Log.w("presence", "Bunker pubkey: ${session.bunkerPubkey.take(16)}")
+        Log.w("presence", "Relay: ${session.relay}")
 
         // Restore state - recreate KeyPair and Signer
         clientPrivateKey = session.clientPrivateKey.hexToByteArray()
-        val pubKeyBytes = secp256k1.pubkeyCreate(clientPrivateKey!!)
-        clientPublicKey = pubKeyBytes.toHex()
 
         // Create KeyPair and Signer for encryption/decryption
-        clientKeyPair = KeyPair(clientPrivateKey!!, pubKeyBytes, false)
+        // Use Quartz's KeyPair which handles the pubkey format correctly (32-byte x-coordinate)
+        clientKeyPair = KeyPair(clientPrivateKey!!)
         clientSigner = NostrSignerInternal(clientKeyPair!!)
+        clientPublicKey = clientKeyPair!!.pubKey.toHex()
+
+        Log.w("presence", "Restored clientPublicKey: ${clientPublicKey} (length: ${clientPublicKey?.length})")
 
         bunkerPubkey = session.bunkerPubkey
         relayUrl = session.relay
@@ -408,6 +440,7 @@ class RemoteSignerManager(
         _authState.value = AuthState.Authenticated(session.userPubkey)
 
         // Reconnect to relay in background
+        Log.w("presence", "Launching connectToRelay() in background...")
         scope.launch {
             connectToRelay()
         }
@@ -447,6 +480,93 @@ class RemoteSignerManager(
         webSocket = null
         _connectionUri.value = null
         _authState.value = AuthState.NotAuthenticated
+    }
+
+    /**
+     * Sign an event using the remote signer (NIP-46 sign_event).
+     * Returns the signed event JSON string, or null on failure.
+     */
+    suspend fun signEvent(unsignedEventJson: String): String? {
+        Log.w("presence", "RemoteSignerManager.signEvent called")
+        Log.w("presence", "Current authState: ${_authState.value}")
+
+        if (_authState.value !is AuthState.Authenticated) {
+            Log.w("presence", "Cannot sign event: authState is NOT Authenticated")
+            return null
+        }
+
+        Log.w("presence", "Auth check passed, bunkerPubkey: ${bunkerPubkey?.take(16)}")
+        Log.w("presence", "Relay ready: ${_isRelayReady.value}")
+
+        // Wait for relay to be connected and subscribed (max 10 seconds)
+        if (!_isRelayReady.value) {
+            Log.w("presence", "Waiting for relay to be ready...")
+            var waitTime = 0
+            while (!_isRelayReady.value && waitTime < 10000) {
+                kotlinx.coroutines.delay(100)
+                waitTime += 100
+            }
+            if (!_isRelayReady.value) {
+                Log.w("presence", "Relay not ready after 10 seconds, aborting sign")
+                return null
+            }
+            Log.w("presence", "Relay became ready after ${waitTime}ms")
+        }
+
+        val requestId = UUID.randomUUID().toString()
+        Log.w("presence", "Calling sign_event with request id: $requestId")
+        Log.w("presence", "Unsigned event to sign: ${unsignedEventJson.take(200)}")
+
+        return try {
+            withTimeout(TIMEOUT_MS) {
+                suspendCancellableCoroutine { continuation ->
+                    continuation.invokeOnCancellation {
+                        Log.w("presence", "sign_event request cancelled: $requestId")
+                        pendingRequests.remove(requestId)
+                    }
+
+                    pendingRequests[requestId] = { response ->
+                        if (response.error != null) {
+                            Log.w("presence", "sign_event error response: ${response.error}")
+                            continuation.resume(null)
+                        } else {
+                            Log.w("presence", "sign_event success! Result: ${response.result?.take(200)}...")
+                            continuation.resume(response.result)
+                        }
+                    }
+
+                    scope.launch {
+                        try {
+                            Log.w("presence", "Sending NIP-46 sign_event request...")
+                            // Per NIP-46, event is passed as a JSON string in params array
+                            sendNip46Request(requestId, "sign_event", listOf(unsignedEventJson))
+                            Log.w("presence", "NIP-46 sign_event request sent, waiting for response...")
+                        } catch (e: Exception) {
+                            Log.w("presence", "Failed to send sign_event request: ${e.message}")
+                            pendingRequests.remove(requestId)
+                            continuation.resume(null)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("presence", "sign_event timed out or failed: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Check if user is authenticated and can sign events.
+     */
+    fun isAuthenticated(): Boolean {
+        return _authState.value is AuthState.Authenticated
+    }
+
+    /**
+     * Get the authenticated user's pubkey.
+     */
+    fun getUserPubkey(): String? {
+        return (_authState.value as? AuthState.Authenticated)?.pubkey
     }
 
     // ==================== Crypto helpers ====================

@@ -71,7 +71,9 @@ fun PlayerScreen(
     onBack: () -> Unit,
     stream: LiveStream? = null,
     streamerProfile: Profile? = null,
-    viewModel: PlayerViewModel = viewModel()
+    viewModel: PlayerViewModel = viewModel(
+        factory = PlayerViewModel.Factory(LocalContext.current)
+    )
 ) {
     val currentStream by viewModel.stream.collectAsState()
     val chatMessages by viewModel.chatMessages.collectAsState()

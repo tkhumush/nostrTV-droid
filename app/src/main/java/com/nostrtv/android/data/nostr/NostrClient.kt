@@ -504,6 +504,16 @@ class NostrClient {
         }
     }
 
+    /**
+     * Publish a signed event to all connected relays.
+     * @param signedEventJson The signed event JSON (just the event object, not the ["EVENT", ...] wrapper)
+     */
+    fun publishEvent(signedEventJson: String) {
+        val eventMessage = """["EVENT",$signedEventJson]"""
+        Log.d(TAG, "Publishing event: ${signedEventJson.take(100)}...")
+        broadcast(eventMessage)
+    }
+
     fun disconnect() {
         Log.d(TAG, "Disconnecting from all relays")
         connections.values.forEach { it.disconnect() }
