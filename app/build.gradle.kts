@@ -1,17 +1,18 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.22"
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.2.0"
+    id("org.jetbrains.kotlin.plugin.compose") version "2.2.0"
 }
 
 android {
     namespace = "com.nostrtv.android"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.nostrtv.android"
-        minSdk = 21
-        targetSdk = 34
+        minSdk = 26
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
     }
@@ -37,10 +38,6 @@ android {
 
     buildFeatures {
         compose = true
-    }
-
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.8"
     }
 }
 
@@ -96,6 +93,13 @@ dependencies {
 
     // Secp256k1 for Nostr cryptography (NIP-04, NIP-46)
     implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-android:0.14.0")
+
+    // Quartz - Amethyst's Nostr library with NIP-44/NIP-46 support
+    implementation("com.vitorpamplona.quartz:quartz:1.03.0")
+
+    // LibSodium for ChaCha20-IETF (NIP-44 encryption) - required by Quartz
+    implementation("com.goterl:lazysodium-android:5.1.0@aar")
+    implementation("net.java.dev.jna:jna:5.14.0@aar")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")

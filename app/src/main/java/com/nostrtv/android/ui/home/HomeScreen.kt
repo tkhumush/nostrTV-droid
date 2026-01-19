@@ -39,7 +39,6 @@ import androidx.tv.material3.Card
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import com.nostrtv.android.data.auth.SessionStore
 import com.nostrtv.android.data.nostr.LiveStream
 import com.nostrtv.android.data.nostr.Profile
 import com.nostrtv.android.viewmodel.HomeViewModel
@@ -51,10 +50,6 @@ fun HomeScreen(
     onProfileClick: () -> Unit,
     viewModel: HomeViewModel = viewModel()
 ) {
-    val context = LocalContext.current
-    val sessionStore = SessionStore(context)
-    val savedSession = sessionStore.getSavedSession()
-
     val streams by viewModel.streams.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
@@ -80,14 +75,7 @@ fun HomeScreen(
             )
 
             Button(onClick = onProfileClick) {
-                Text(
-                    if (savedSession != null) {
-                        val pubkey = savedSession.userPubkey
-                        "${pubkey.take(8)}..."
-                    } else {
-                        "Sign In"
-                    }
-                )
+                Text("Sign In")
             }
         }
 
