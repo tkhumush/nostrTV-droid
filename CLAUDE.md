@@ -29,27 +29,6 @@ Core capabilities:
 
 ## Known Issues
 
-### NIP-46 Pubkey Problem (Critical)
-The bunker authentication flow works but returns the **wrong pubkey**. When the bunker sends the `connect` response, it returns a SECRET as the result instead of the user's actual pubkey.
-
-**Attempted fix:** Call `get_public_key` to verify the correct pubkey after connect, but the bunker returns "Failed to decrypt content" - this suggests a NIP-44 encryption compatibility issue between our implementation and the bunker.
-
-**Current workaround:** Using the bunker's pubkey as a temporary user identifier. Login completes but profile fetching retrieves the bunker's profile instead of the user's profile.
-
-**Files to investigate:**
-- `BunkerAuthManager.kt` - lines ~280-350 (handleConnectAck, verifyAndCorrectPubkey)
-- `NostrCrypto.kt` - NIP-44 encryption implementation
-
-**Symptoms:**
-- User logs in successfully (QR code scanned, bunker connected)
-- Profile page shows "Loading..." or wrong profile
-- Debug logs show profile fetch for wrong pubkey
-
-**Potential causes:**
-1. NIP-44 encryption mismatch (ChaCha20 implementation differs from bunker)
-2. Conversation key derivation issue
-3. Nonce handling difference
-
 ### Relays
 Default relays in `NostrClient.kt`:
 - wss://relay.damus.io
@@ -155,7 +134,7 @@ app/
 │   │   ├── ZapManager.kt
 │   │   └── ZapModels.kt
 │   └── auth/
-│       ├── BunkerAuthManager.kt
+│       ├── RemoteSignerManager.kt
 │       └── SessionStore.kt
 ├── ui/
 │   ├── home/
@@ -226,9 +205,10 @@ Each checkpoint: manually test, commit, include short PR description.
 ### Feature Details
 
 #### 1. NIP-46 Remote Sign-in Flow
-- QR code display with `nostr+connect://` or `bunker://` URI
-- WebSocket connection to bunker relay (wss://relay.nsec.app)
-- Handle NIP-46 request/response protocol
+- QR code display with `nostrconnect://` URI
+- WebSocket connection to bunker relay (wss://relay.primal.net)
+- Handle NIP-46 request/response protocol using Quartz library for NIP-44 encryption
+- Two-step auth: connect ack → get_public_key to verify correct user pubkey
 - Store session securely (EncryptedSharedPreferences)
 - Auto-restore session on app launch
 
@@ -319,27 +299,31 @@ Building a **TV-first, decentralized media client**. Proceed incrementally.
 
 ## Session Notes
 
-### Last Session (Jan 18, 2025)
+### Last Session (Jan 19, 2025)
 **Branch:** `main`
-**PRs:** #4 (merged)
+**PRs:** #8 (merged)
 
 **Completed:**
-- Chat Manager (Read) feature (PR #4)
-  - Added KIND_LIVE_CHAT (1311) constant for NIP-53 live chat
-  - Combined chat + zap subscriptions into single relay request for efficiency
-  - Fixed reactive flow bug in subscribeToChatMessages (was returning static flow)
-  - Added profile enrichment for chat message authors (name + picture)
-  - Added author avatars to ChatMessageItem using Coil
-  - Rearranged chat message layout: Row 1 (avatar + name/time), Row 2 (content full width)
-  - Temporarily hidden chat footer until Chat Send is implemented
+- Fixed NIP-46 remote signing (PR #8)
+  - Rewrote auth using Quartz library's `NostrSignerInternal` for battle-tested NIP-44 encryption
+  - Replaced `BunkerAuthManager.kt` with `RemoteSignerManager.kt`
+  - Changed relay from deprecated `relay.nsec.app` to `relay.primal.net`
+  - Implemented two-step auth flow: connect ack → get_public_key to get correct user pubkey
+  - Fixed session storage with EncryptedSharedPreferences
+- Profile fetching and display
+  - ProfileViewModel fetches kind 0 from relays after authentication
+  - ProfileScreen displays avatar, name, NIP-05 verification, about text
+- HomeScreen user profile display
+  - Shows user avatar and name in header when logged in (instead of "Sign In" button)
+  - Added `fetchUserProfile()` method to HomeViewModel
 
 **Issues Discovered:**
-- None new (NIP-46 pubkey issue still pending - see Known Issues)
+- None (NIP-46 pubkey issue is now RESOLVED)
 
 **Next session should:**
-1. Fix NIP-46 pubkey issue (critical for user features)
-2. Implement Chat Send via NIP-46 bunker
-3. Consider Admin Curated Streams feature
+1. Implement Chat Send via NIP-46 bunker (feature #7)
+2. Consider Admin Curated Streams feature (feature #3)
+3. Consider Presence Events (feature #8)
 4. Consider fullscreen chat toggle (video expands when chat hidden)
 
 ## End of Session Routine
