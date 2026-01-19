@@ -1,6 +1,8 @@
 package com.nostrtv.android.data.zap
 
 import android.util.Log
+import com.nostrtv.android.data.auth.RemoteSignerManager
+import com.nostrtv.android.data.nostr.NostrClient
 import com.nostrtv.android.data.nostr.NostrProtocol
 import com.nostrtv.android.data.nostr.Profile
 import kotlinx.coroutines.Dispatchers
@@ -19,17 +21,27 @@ import java.util.concurrent.TimeUnit
  * ZapManager handles Lightning zaps as per NIP-57.
  * Reference: https://github.com/nostr-protocol/nips/blob/master/57.md
  */
-class ZapManager {
+class ZapManager(
+    private val remoteSignerManager: RemoteSignerManager,
+    private val nostrClient: NostrClient
+) {
     companion object {
         private const val TAG = "ZapManager"
 
         val PRESET_AMOUNTS = listOf(
-            ZapAmount(21, "21 sats"),
-            ZapAmount(100, "100 sats"),
-            ZapAmount(500, "500 sats"),
-            ZapAmount(1000, "1K sats"),
-            ZapAmount(5000, "5K sats"),
-            ZapAmount(10000, "10K sats")
+            ZapAmount(21, "21", "\u2764\uFE0F"),      // ❤️ Heart
+            ZapAmount(100, "100", "\uD83C\uDFC6"),    // 🏆 Trophy
+            ZapAmount(420, "420", "\uD83C\uDF40"),    // 🍀 Clover
+            ZapAmount(1000, "1K", "\u2615"),          // ☕ Coffee
+            ZapAmount(1500, "1.5K", "\uD83E\uDDC1"), // 🧁 Muffin
+            ZapAmount(2100, "2.1K", "\u221E")         // ∞ Infinity
+        )
+
+        // Default relays for zap receipts
+        private val ZAP_RELAYS = listOf(
+            "wss://relay.damus.io",
+            "wss://relay.nostr.band",
+            "wss://relay.primal.net"
         )
     }
 
@@ -41,20 +53,24 @@ class ZapManager {
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
-     * Get Lightning invoice for a zap.
+     * Get Lightning invoice for a zap with full NIP-57 compliance.
      * 1. Fetch LNURL from recipient's profile (lud16 or lud06)
-     * 2. Create zap request event
-     * 3. Request invoice from LNURL endpoint
+     * 2. Create and sign zap request event (kind 9734)
+     * 3. Request invoice from LNURL endpoint with signed nostr event
      */
     suspend fun requestZapInvoice(
         recipientProfile: Profile,
         amountSats: Long,
         comment: String = "",
-        eventId: String? = null,
         aTag: String? = null
     ): ZapInvoiceResult {
         return withContext(Dispatchers.IO) {
             try {
+                // Verify user is authenticated
+                if (!remoteSignerManager.isAuthenticated()) {
+                    return@withContext ZapInvoiceResult.Error("Not authenticated")
+                }
+
                 // Get LNURL endpoint
                 val lnurlEndpoint = getLnurlEndpoint(recipientProfile)
                     ?: return@withContext ZapInvoiceResult.Error("No Lightning address found")
@@ -65,6 +81,8 @@ class ZapManager {
                 val payInfo = fetchLnurlPayInfo(lnurlEndpoint)
                     ?: return@withContext ZapInvoiceResult.Error("Failed to fetch LNURL info")
 
+                Log.d(TAG, "LNURL pay info: allowsNostr=${payInfo.allowsNostr}, nostrPubkey=${payInfo.nostrPubkey?.take(16)}")
+
                 // Validate amount
                 val amountMilliSats = amountSats * 1000
                 if (amountMilliSats < payInfo.minSendable || amountMilliSats > payInfo.maxSendable) {
@@ -73,17 +91,30 @@ class ZapManager {
                     )
                 }
 
-                // Build callback URL with zap request
+                // Build and sign the zap request event (kind 9734)
+                val signedZapRequest = if (payInfo.allowsNostr && payInfo.nostrPubkey != null) {
+                    buildAndSignZapRequest(
+                        recipientPubkey = recipientProfile.pubkey,
+                        amountMilliSats = amountMilliSats,
+                        lnurlEndpoint = lnurlEndpoint,
+                        comment = comment,
+                        aTag = aTag
+                    )
+                } else {
+                    Log.d(TAG, "LNURL doesn't support Nostr zaps, proceeding without zap request")
+                    null
+                }
+
+                // Build callback URL
                 val callbackUrl = buildCallbackUrl(
                     payInfo.callback,
                     amountMilliSats,
                     comment,
-                    eventId,
-                    aTag,
-                    recipientProfile.pubkey
+                    signedZapRequest,
+                    lnurlEndpoint
                 )
 
-                Log.d(TAG, "Requesting invoice from: $callbackUrl")
+                Log.d(TAG, "Requesting invoice from: ${callbackUrl.take(200)}...")
 
                 // Request invoice
                 val invoice = fetchInvoice(callbackUrl)
@@ -99,6 +130,89 @@ class ZapManager {
                 ZapInvoiceResult.Error(e.message ?: "Unknown error")
             }
         }
+    }
+
+    /**
+     * Build and sign a kind 9734 zap request event per NIP-57.
+     * The event is signed by the user via NIP-46 remote signer.
+     */
+    private suspend fun buildAndSignZapRequest(
+        recipientPubkey: String,
+        amountMilliSats: Long,
+        lnurlEndpoint: String,
+        comment: String,
+        aTag: String?
+    ): String? {
+        val createdAt = System.currentTimeMillis() / 1000
+
+        // Build tags per NIP-57:
+        // - relays: where receipt should be published
+        // - amount: in millisats
+        // - lnurl: bech32 encoded (we use raw URL for simplicity)
+        // - p: recipient pubkey
+        // - a: (optional) stream event coordinate
+        val tags = mutableListOf<List<String>>()
+
+        // Relays tag (required)
+        tags.add(listOf("relays") + ZAP_RELAYS)
+
+        // Amount in millisats (required)
+        tags.add(listOf("amount", amountMilliSats.toString()))
+
+        // Recipient pubkey (required)
+        tags.add(listOf("p", recipientPubkey))
+
+        // LNURL (optional but recommended)
+        tags.add(listOf("lnurl", lnurlEndpoint))
+
+        // Stream a-tag if zapping a stream (optional)
+        if (!aTag.isNullOrEmpty()) {
+            tags.add(listOf("a", aTag))
+        }
+
+        // Build unsigned event JSON (kind 9734)
+        val unsignedEvent = buildUnsignedEventForSigning(
+            createdAt = createdAt,
+            kind = 9734,
+            tags = tags,
+            content = comment
+        )
+
+        Log.d(TAG, "Unsigned zap request: $unsignedEvent")
+
+        // Sign via NIP-46 remote signer
+        val signedEvent = remoteSignerManager.signEvent(unsignedEvent)
+        if (signedEvent == null) {
+            Log.e(TAG, "Failed to sign zap request event")
+            return null
+        }
+
+        Log.d(TAG, "Signed zap request: ${signedEvent.take(200)}...")
+        return signedEvent
+    }
+
+    /**
+     * Build an unsigned event JSON for signing via NIP-46.
+     * Per NIP-46, the unsigned event should only contain: kind, content, tags, created_at
+     */
+    private fun buildUnsignedEventForSigning(
+        createdAt: Long,
+        kind: Int,
+        tags: List<List<String>>,
+        content: String
+    ): String {
+        val tagsJson = tags.joinToString(",") { tag ->
+            "[" + tag.joinToString(",") { "\"${escapeJson(it)}\"" } + "]"
+        }
+        return """{"kind":$kind,"content":"${escapeJson(content)}","tags":[$tagsJson],"created_at":$createdAt}"""
+    }
+
+    private fun escapeJson(s: String): String {
+        return s.replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
     }
 
     private fun getLnurlEndpoint(profile: Profile): String? {
@@ -153,16 +267,15 @@ class ZapManager {
         callback: String,
         amountMilliSats: Long,
         comment: String,
-        eventId: String?,
-        aTag: String?,
-        recipientPubkey: String
+        signedZapRequest: String?,
+        lnurl: String
     ): String {
         val url = StringBuilder(callback)
 
         // Add query separator
         url.append(if (callback.contains("?")) "&" else "?")
 
-        // Add amount
+        // Add amount (required)
         url.append("amount=$amountMilliSats")
 
         // Add comment if present
@@ -170,8 +283,13 @@ class ZapManager {
             url.append("&comment=${java.net.URLEncoder.encode(comment, "UTF-8")}")
         }
 
-        // Note: In a full implementation, we would create and sign a zap request event (kind 9734)
-        // and include it in the nostr= parameter. This requires the bunker to sign the event.
+        // Add signed zap request event as nostr parameter (NIP-57)
+        if (signedZapRequest != null) {
+            url.append("&nostr=${java.net.URLEncoder.encode(signedZapRequest, "UTF-8")}")
+        }
+
+        // Add lnurl parameter
+        url.append("&lnurl=${java.net.URLEncoder.encode(lnurl, "UTF-8")}")
 
         return url.toString()
     }
@@ -197,7 +315,8 @@ class ZapManager {
 
 data class ZapAmount(
     val sats: Long,
-    val label: String
+    val label: String,
+    val emoji: String
 )
 
 data class LnurlPayInfo(

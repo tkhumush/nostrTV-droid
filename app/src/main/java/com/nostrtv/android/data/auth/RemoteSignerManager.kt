@@ -67,6 +67,12 @@ class RemoteSignerManager(
     // Pending requests waiting for response
     private val pendingRequests = ConcurrentHashMap<String, (BunkerResponseJson) -> Unit>()
 
+    // Track request timestamps for filtering old responses
+    private val requestTimestamps = ConcurrentHashMap<String, Long>()
+
+    // Track when the current session started (for filtering old events)
+    private var sessionStartTimestamp: Long = 0
+
     private val _authState = MutableStateFlow<AuthState>(AuthState.NotAuthenticated)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
@@ -89,6 +95,10 @@ class RemoteSignerManager(
      */
     fun startLogin(relay: String = DEFAULT_RELAY): String {
         Log.d(TAG, "Starting NIP-46 login flow")
+
+        // Set session start timestamp for filtering old events
+        sessionStartTimestamp = System.currentTimeMillis() / 1000
+        Log.d(TAG, "Session start timestamp: $sessionStartTimestamp")
 
         // Generate ephemeral keypair using Quartz's KeyPair
         clientKeyPair = KeyPair()  // Generates new random keypair
@@ -169,10 +179,17 @@ class RemoteSignerManager(
             Log.w("presence", "Cannot subscribe - clientPublicKey is null!")
             return
         }
-        val since = System.currentTimeMillis() / 1000 - 60
+
+        // Use session start timestamp (with 5 second buffer) to avoid old events
+        // For initial login, we need some lookback for the connect ack
+        val since = if (sessionStartTimestamp > 0) {
+            sessionStartTimestamp - 5  // Small buffer for clock drift
+        } else {
+            System.currentTimeMillis() / 1000 - 30  // Fallback: 30 second lookback
+        }
 
         val subMessage = """["REQ","nip46",{"kinds":[$KIND_NIP46],"#p":["$pubkey"],"since":$since}]"""
-        Log.w("presence", "Sending NIP-46 subscription: $subMessage")
+        Log.w("presence", "Sending NIP-46 subscription with since=$since (session start: $sessionStartTimestamp)")
         val sent = webSocket?.send(subMessage)
         Log.w("presence", "NIP-46 subscription sent: $sent")
         _isRelayReady.value = true
@@ -230,6 +247,16 @@ class RemoteSignerManager(
                 // Remove surrounding quotes and unescape JSON string
                 val content = rawContent.trim('"').replace("\\\"", "\"").replace("\\\\", "\\")
 
+                // Extract event created_at timestamp
+                val eventCreatedAt = event["created_at"]?.toString()?.toLongOrNull() ?: 0L
+                Log.d(TAG, "Event created_at: $eventCreatedAt, session start: $sessionStartTimestamp")
+
+                // Filter out events older than our session start (with 5 second buffer for clock drift)
+                if (eventCreatedAt > 0 && sessionStartTimestamp > 0 && eventCreatedAt < sessionStartTimestamp - 5) {
+                    Log.w(TAG, "Ignoring old NIP-46 event (created_at: $eventCreatedAt < session start: $sessionStartTimestamp)")
+                    return@launch
+                }
+
                 Log.d(TAG, "Received NIP-46 event from: ${senderPubkey.take(16)}...")
                 Log.d(TAG, "Raw content length: ${rawContent.length}, unescaped: ${content.length}")
                 Log.d(TAG, "Content prefix: ${content.take(50)}")
@@ -254,8 +281,16 @@ class RemoteSignerManager(
                 val requestId = response.id
                 Log.d(TAG, "Response id: $requestId, pending requests: ${pendingRequests.keys}")
                 if (requestId != null && pendingRequests.containsKey(requestId)) {
+                    // Verify this response is for the current request (not an old cached response)
+                    val requestTimestamp = requestTimestamps[requestId]
+                    if (requestTimestamp != null && eventCreatedAt > 0 && eventCreatedAt < requestTimestamp - 5) {
+                        Log.w(TAG, "Ignoring stale response for request $requestId (event: $eventCreatedAt < request: $requestTimestamp)")
+                        return@launch
+                    }
+
                     Log.d(TAG, "Found matching pending request for id: $requestId")
                     val callback = pendingRequests.remove(requestId)
+                    requestTimestamps.remove(requestId)  // Clean up timestamp tracking
                     callback?.invoke(response)
                     return@launch
                 } else {
@@ -336,6 +371,11 @@ class RemoteSignerManager(
         val privKey = this.clientPrivateKey ?: return
         val pubkey = this.clientPublicKey ?: return
 
+        // Track when this request was sent (for filtering old responses)
+        val requestTimestamp = System.currentTimeMillis() / 1000
+        requestTimestamps[requestId] = requestTimestamp
+        Log.d(TAG, "Request $requestId timestamp: $requestTimestamp")
+
         // All params are passed as JSON strings - escape and quote each one
         val paramsJson = params.joinToString(",") { "\"${escapeJson(it)}\"" }
         val request = """{"id":"$requestId","method":"$method","params":[$paramsJson]}"""
@@ -348,7 +388,9 @@ class RemoteSignerManager(
 
         // Create event
         val createdAt = System.currentTimeMillis() / 1000
-        Log.d(TAG, "Event created_at timestamp: $createdAt (${java.util.Date(createdAt * 1000)})")
+        Log.w("presence", "Event created_at timestamp: $createdAt")
+        Log.w("presence", "Current time (readable): ${java.util.Date(createdAt * 1000)}")
+        Log.w("presence", "System.currentTimeMillis(): ${System.currentTimeMillis()}")
         val tags = listOf(listOf("p", bunkerPubkey))
 
         // Compute event ID
@@ -416,6 +458,10 @@ class RemoteSignerManager(
             Log.w("presence", "No saved session found")
             return false
         }
+
+        // Set session start timestamp for filtering old events
+        sessionStartTimestamp = System.currentTimeMillis() / 1000
+        Log.w("presence", "Session restore timestamp: $sessionStartTimestamp")
 
         Log.w("presence", "Restoring session for user: ${session.userPubkey.take(16)}...")
         Log.w("presence", "Bunker pubkey: ${session.bunkerPubkey.take(16)}")

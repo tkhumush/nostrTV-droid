@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -49,6 +50,8 @@ private const val ZAP_DISPLAY_DURATION_MS = 3000L
 @Composable
 fun ZapChyron(
     zapReceipts: List<ZapReceipt>,
+    isAuthenticated: Boolean,
+    onZapClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     // Show only the latest 10 zaps
@@ -79,26 +82,27 @@ fun ZapChyron(
         }
     }
 
-    if (recentZaps.isNotEmpty()) {
-        val currentZap = recentZaps.getOrNull(currentIndex)
+    val currentZap = recentZaps.getOrNull(currentIndex)
 
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .height(35.dp)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.8f)
-                        )
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(35.dp)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.8f)
                     )
                 )
-                .padding(horizontal = 12.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
+            )
+            .padding(horizontal = 12.dp)
+    ) {
+        // Zap ticker on the left
+        if (recentZaps.isNotEmpty() && currentZap != null) {
             AnimatedContent(
                 targetState = currentZap,
+                modifier = Modifier.align(Alignment.CenterStart),
                 transitionSpec = {
                     (slideInVertically(
                         initialOffsetY = { it },
@@ -113,8 +117,34 @@ fun ZapChyron(
                 },
                 label = "zap_transition"
             ) { zap ->
-                if (zap != null) {
-                    ZapItem(zap = zap)
+                ZapItem(zap = zap)
+            }
+        }
+
+        // Zap button on the right (only when authenticated)
+        if (isAuthenticated) {
+            Surface(
+                onClick = onZapClick,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .size(28.dp),
+                shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(
+                    shape = RoundedCornerShape(6.dp)
+                ),
+                colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                    containerColor = Color(0xFFFFA500).copy(alpha = 0.2f),
+                    focusedContainerColor = Color(0xFFFFA500).copy(alpha = 0.5f)
+                )
+            ) {
+                Box(
+                    modifier = Modifier.size(28.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "\u26A1",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color(0xFFFFA500)
+                    )
                 }
             }
         }
