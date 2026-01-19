@@ -85,16 +85,16 @@ fun ZapChyron(
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .height(35.dp)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color.Black.copy(alpha = 0.7f)
+                            Color.Black.copy(alpha = 0.8f)
                         )
                     )
                 )
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 12.dp),
             contentAlignment = Alignment.CenterStart
         ) {
             AnimatedContent(
@@ -130,17 +130,17 @@ fun ZapItem(
     Row(
         modifier = modifier
             .background(
-                Color.Black.copy(alpha = 0.6f),
-                RoundedCornerShape(16.dp)
+                Color.Black.copy(alpha = 0.8f),
+                RoundedCornerShape(12.dp)
             )
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // Lightning emoji
         Text(
             text = "\u26A1",
-            style = MaterialTheme.typography.titleLarge
+            style = MaterialTheme.typography.labelMedium
         )
 
         // Profile picture
@@ -152,7 +152,7 @@ fun ZapItem(
                     .build(),
                 contentDescription = "Zapper avatar",
                 modifier = Modifier
-                    .size(24.dp)
+                    .size(20.dp)
                     .clip(CircleShape),
                 contentScale = ContentScale.Crop
             )
@@ -161,7 +161,7 @@ fun ZapItem(
         // Sender name
         Text(
             text = zap.senderName ?: "Anonymous",
-            style = MaterialTheme.typography.bodyLarge.copy(
+            style = MaterialTheme.typography.labelMedium.copy(
                 fontWeight = FontWeight.Bold
             ),
             color = Color.White,
@@ -170,15 +170,15 @@ fun ZapItem(
         )
 
         Text(
-            text = "zapped the stream",
-            style = MaterialTheme.typography.bodyLarge,
-            color = Color.White.copy(alpha = 0.8f)
+            text = "zapped",
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White.copy(alpha = 0.7f)
         )
 
         // Amount in sats with yellow/orange color
         Text(
             text = "${zap.formattedAmount} sats",
-            style = MaterialTheme.typography.bodyLarge.copy(
+            style = MaterialTheme.typography.labelMedium.copy(
                 fontWeight = FontWeight.Bold
             ),
             color = Color(0xFFFFA500) // Orange color for amount
@@ -187,14 +187,9 @@ fun ZapItem(
         // Message if present
         if (!zap.message.isNullOrBlank()) {
             Text(
-                text = "and said:",
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White.copy(alpha = 0.8f)
-            )
-            Text(
-                text = zap.message,
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White,
+                text = "\"${zap.message}\"",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.7f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
