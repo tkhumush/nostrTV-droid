@@ -83,7 +83,19 @@ class ProfileViewModel(
      */
     private fun fetchUserProfile(pubkey: String) {
         viewModelScope.launch {
+            // Connect to profile-focused relays
+            Log.d(TAG, "Connecting to relays for profile fetch...")
+            nostrClient.connect(listOf(
+                "wss://purplepag.es",      // Dedicated kind 0 relay
+                "wss://relay.primal.net",
+                "wss://relay.damus.io"
+            ))
+
+            // Wait a moment for connections to establish
+            kotlinx.coroutines.delay(1000)
+
             // Request profile fetch from relays
+            Log.d(TAG, "Requesting profile for pubkey: ${pubkey.take(16)}...")
             nostrClient.fetchProfiles(listOf(pubkey))
 
             // Observe profile updates

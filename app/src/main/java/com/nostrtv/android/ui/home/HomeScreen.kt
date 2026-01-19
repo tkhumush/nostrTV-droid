@@ -1,6 +1,7 @@
 package com.nostrtv.android.ui.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +40,7 @@ import androidx.tv.material3.Card
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nostrtv.android.data.auth.SessionStore
 import com.nostrtv.android.data.nostr.LiveStream
 import com.nostrtv.android.data.nostr.Profile
 import com.nostrtv.android.viewmodel.HomeViewModel
@@ -50,10 +52,22 @@ fun HomeScreen(
     onProfileClick: () -> Unit,
     viewModel: HomeViewModel = viewModel()
 ) {
+    val context = LocalContext.current
+    val sessionStore = SessionStore(context)
+    val savedSession = sessionStore.getSavedSession()
+
     val streams by viewModel.streams.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
     val profiles by viewModel.profiles.collectAsState()
+
+    // Get logged-in user's profile if available
+    val userProfile = savedSession?.userPubkey?.let { profiles[it] }
+
+    // Fetch user profile if logged in but not yet loaded
+    if (savedSession != null && userProfile == null) {
+        viewModel.fetchUserProfile(savedSession.userPubkey)
+    }
 
     Column(
         modifier = Modifier
@@ -74,8 +88,64 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.primary
             )
 
-            Button(onClick = onProfileClick) {
-                Text("Sign In")
+            if (savedSession != null) {
+                // Show user avatar and name when logged in
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { onProfileClick() }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Avatar
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (userProfile?.picture != null) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(userProfile.picture)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Profile picture",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Text(
+                                text = (userProfile?.name?.firstOrNull()
+                                    ?: savedSession.userPubkey.firstOrNull()
+                                    ?: '?').uppercase().toString(),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Name
+                    Text(
+                        text = userProfile?.displayNameOrName
+                            ?: savedSession.userPubkey.take(8) + "...",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            } else {
+                // Show Sign In button when not logged in
+                Button(onClick = onProfileClick) {
+                    Text("Sign In")
+                }
             }
         }
 

@@ -103,6 +103,13 @@ class HomeViewModel : ViewModel() {
         return _streams.value.find { it.id == streamId }
     }
 
+    /**
+     * Fetch a user's profile from relays.
+     */
+    fun fetchUserProfile(pubkey: String) {
+        nostrClient.fetchProfiles(listOf(pubkey))
+    }
+
     override fun onCleared() {
         super.onCleared()
         nostrClient.disconnect()

@@ -112,6 +112,7 @@ fun ProfileScreen(
                         profileName = userProfile?.name ?: userProfile?.displayName,
                         profilePicture = userProfile?.picture,
                         profileAbout = userProfile?.about,
+                        profileNip05 = userProfile?.nip05,
                         onLogoutClick = { viewModel.logout() }
                     )
                 }
@@ -262,6 +263,7 @@ private fun AuthenticatedContent(
     profileName: String?,
     profilePicture: String?,
     profileAbout: String?,
+    profileNip05: String?,
     onLogoutClick: () -> Unit
 ) {
     Column(
@@ -309,6 +311,16 @@ private fun AuthenticatedContent(
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground
         )
+
+        // NIP-05 verification (if available)
+        if (profileNip05 != null && profileNip05.isNotBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "✓ $profileNip05",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
