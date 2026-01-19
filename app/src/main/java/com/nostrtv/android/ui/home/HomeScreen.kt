@@ -1,6 +1,7 @@
 package com.nostrtv.android.ui.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,9 +39,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.tv.foundation.lazy.grid.TvGridCells
-import androidx.tv.foundation.lazy.grid.TvLazyVerticalGrid
-import androidx.tv.foundation.lazy.grid.items
+import androidx.tv.foundation.lazy.list.TvLazyRow
+import androidx.tv.foundation.lazy.list.items
 import androidx.tv.material3.Button
 import androidx.tv.material3.Card
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -96,10 +96,52 @@ fun HomeScreen(
         HomeTab.FOLLOWING -> followingStreams
     }
 
-    Column(
+    // Track the currently focused stream for background (default to first)
+    var focusedStream by remember { mutableStateOf<LiveStream?>(null) }
+    val backgroundStream = focusedStream ?: streams.firstOrNull()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Fullscreen background image from selected stream with crossfade transition
+        androidx.compose.animation.Crossfade(
+            targetState = backgroundStream?.thumbnailUrl,
+            animationSpec = androidx.compose.animation.core.tween(durationMillis = 500),
+            label = "background_crossfade"
+        ) { thumbnailUrl ->
+            if (!thumbnailUrl.isNullOrEmpty()) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(thumbnailUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                    // Gradient overlay - dark at top for header, fades to transparent
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Black.copy(alpha = 0.8f),
+                                        Color.Black.copy(alpha = 0.3f),
+                                        Color.Transparent
+                                    ),
+                                    startY = 0f,
+                                    endY = 400f
+                                )
+                            )
+                    )
+                }
+            }
+        }
+
+        Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(48.dp)
+            .padding(start = 48.dp, end = 48.dp, top = 24.dp, bottom = 48.dp)
     ) {
         // Header: Admin Avatar | nostrTV | Tabs | User Profile
         Row(
@@ -320,22 +362,56 @@ fun HomeScreen(
                 }
             }
             else -> {
-                TvLazyVerticalGrid(
-                    columns = TvGridCells.Fixed(4),
-                    contentPadding = PaddingValues(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                // Push content to bottom
+                Spacer(modifier = Modifier.weight(1f))
+
+                // Stream info above cards - updates with focus
+                val displayStream = focusedStream ?: streams.firstOrNull()
+                val displayStreamerProfile = displayStream?.streamerPubkey?.let { profiles[it] }
+
+                Column(
+                    modifier = Modifier.padding(start = 16.dp, bottom = 16.dp)
+                ) {
+                    // Stream title
+                    Text(
+                        text = displayStream?.title ?: "",
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = Color.White,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Streamer name
+                    Text(
+                        text = displayStreamerProfile?.displayNameOrName
+                            ?: displayStream?.streamerName
+                            ?: "",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White.copy(alpha = 0.8f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // Horizontal scrolling row of stream cards
+                TvLazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
                     items(streams, key = { it.id }) { stream ->
                         val streamerProfile = stream.streamerPubkey?.let { profiles[it] }
                         StreamCard(
                             stream = stream,
                             streamerProfile = streamerProfile,
-                            onClick = { onStreamClick(stream.id) }
+                            onClick = { onStreamClick(stream.id) },
+                            onFocused = { focusedStream = stream }
                         )
                     }
                 }
             }
+        }
         }
     }
 }
@@ -384,13 +460,28 @@ private fun TabButton(
 fun StreamCard(
     stream: LiveStream,
     streamerProfile: Profile? = null,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onFocused: () -> Unit = {}
 ) {
     Card(
         onClick = onClick,
         modifier = Modifier
-            .width(320.dp)
-            .height(180.dp)
+            .width(256.dp)
+            .height(144.dp)
+            .onFocusChanged { if (it.isFocused) onFocused() }
+            .border(
+                width = 2.dp,
+                color = Color.White.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(8.dp)
+            ),
+        scale = androidx.tv.material3.CardDefaults.scale(
+            scale = 1f,
+            focusedScale = 1f
+        ),
+        glow = androidx.tv.material3.CardDefaults.glow(
+            glow = androidx.tv.material3.Glow.None,
+            focusedGlow = androidx.tv.material3.Glow.None
+        )
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             // Thumbnail image
