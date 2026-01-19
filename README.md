@@ -6,8 +6,10 @@
 
 ## Screenshots
 
-<!-- TODO: Add screenshots -->
-*Screenshots coming soon*
+<img width="1920" height="1080" alt="Screenshot_20260119_184230" src="https://github.com/user-attachments/assets/262d3fc3-2a5a-496a-8d9f-b3a86aea1fa8" />
+
+<img width="1920" height="1080" alt="Screenshot_20260119_184420" src="https://github.com/user-attachments/assets/0ceef426-c13b-475f-a00d-364def8dea15" />
+
 
 ## Key Features
 
