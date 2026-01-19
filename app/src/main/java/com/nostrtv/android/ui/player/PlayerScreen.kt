@@ -27,8 +27,8 @@ import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.runtime.Composable
@@ -172,8 +172,7 @@ fun PlayerScreen(
             ChatPanel(
                 messages = chatMessages,
                 onSendMessage = { message ->
-                    // TODO: Implement send message via remote signer
-                    Log.d("PlayerScreen", "Send message: $message")
+                    viewModel.sendChatMessage(message)
                 },
                 modifier = Modifier
                     .weight(0.17f)
@@ -406,13 +405,69 @@ fun ChatFooter(
     onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // TODO: Re-enable chat input when Chat Send feature is implemented
-    Box(
+    Row(
         modifier = modifier
             .background(Color.Black.copy(alpha = 0.8f))
-            .padding(8.dp)
-            .height(32.dp)
-    )
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .height(28.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        // Text input field
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .background(
+                    Color.White.copy(alpha = 0.1f),
+                    RoundedCornerShape(4.dp)
+                )
+                .padding(horizontal = 6.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            if (messageText.isEmpty()) {
+                Text(
+                    text = "Type a message...",
+                    style = TextStyle(fontSize = 8.sp),
+                    color = Color.White.copy(alpha = 0.4f)
+                )
+            }
+            BasicTextField(
+                value = messageText,
+                onValueChange = onMessageChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onKeyEvent { keyEvent ->
+                        if (keyEvent.type == KeyEventType.KeyUp && keyEvent.key == Key.Enter) {
+                            onSend()
+                            true
+                        } else false
+                    },
+                textStyle = TextStyle(
+                    fontSize = 8.sp,
+                    color = Color.White
+                ),
+                singleLine = true,
+                cursorBrush = SolidColor(Color.White)
+            )
+        }
+
+        // Send button
+        IconButton(
+            onClick = onSend,
+            modifier = Modifier.size(24.dp)
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.Send,
+                contentDescription = "Send message",
+                tint = if (messageText.isNotBlank())
+                    MaterialTheme.colorScheme.primary
+                else
+                    Color.White.copy(alpha = 0.3f),
+                modifier = Modifier.size(14.dp)
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
