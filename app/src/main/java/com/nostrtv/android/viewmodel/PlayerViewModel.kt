@@ -12,7 +12,11 @@ import com.nostrtv.android.data.nostr.ChatMessage
 import com.nostrtv.android.data.nostr.LiveStream
 import com.nostrtv.android.data.nostr.NostrClientProvider
 import com.nostrtv.android.data.nostr.PresenceManager
+import com.nostrtv.android.data.nostr.Profile
 import com.nostrtv.android.data.nostr.ZapReceipt
+import com.nostrtv.android.data.zap.ZapInvoiceResult
+import com.nostrtv.android.data.zap.ZapManager
+import com.nostrtv.android.ui.zap.ZapFlowState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +34,7 @@ class PlayerViewModel(
     private val remoteSignerManager = RemoteSignerManager(sessionStore)
     private val presenceManager = PresenceManager(remoteSignerManager, nostrClient)
     private val chatManager = ChatManager(remoteSignerManager, nostrClient)
+    private val zapManager = ZapManager(remoteSignerManager, nostrClient)
 
     private val _stream = MutableStateFlow<LiveStream?>(null)
     val stream: StateFlow<LiveStream?> = _stream.asStateFlow()
@@ -52,21 +57,41 @@ class PlayerViewModel(
     private val _isSendingMessage = MutableStateFlow(false)
     val isSendingMessage: StateFlow<Boolean> = _isSendingMessage.asStateFlow()
 
+    // Zap flow state
+    private val _zapFlowState = MutableStateFlow<ZapFlowState>(ZapFlowState.Hidden)
+    val zapFlowState: StateFlow<ZapFlowState> = _zapFlowState.asStateFlow()
+
+    private val _streamerProfile = MutableStateFlow<Profile?>(null)
+    val streamerProfile: StateFlow<Profile?> = _streamerProfile.asStateFlow()
+
     private var currentStreamATag: String? = null
     private var hasAnnouncedPresence = false
+    private var pendingZapAmountSats: Long = 0
+    private var pendingZapTimestamp: Long = 0
 
     init {
         // Check authentication status
         _isAuthenticated.value = remoteSignerManager.isAuthenticated()
     }
 
-    fun loadStream(stream: LiveStream) {
+    fun loadStream(stream: LiveStream, profile: Profile? = null) {
         Log.d(TAG, "Loading stream: ${stream.title}")
         _stream.value = stream
+        _streamerProfile.value = profile
         _isLoading.value = false
 
         currentStreamATag = stream.aTag
         subscribeToStreamData(stream.aTag)
+
+        // Fetch streamer profile if not provided
+        if (profile == null && stream.streamerPubkey != null) {
+            viewModelScope.launch {
+                val fetchedProfile = nostrClient.getProfile(stream.streamerPubkey)
+                if (fetchedProfile != null) {
+                    _streamerProfile.value = fetchedProfile
+                }
+            }
+        }
     }
 
     private fun subscribeToStreamData(aTag: String) {
@@ -89,7 +114,10 @@ class PlayerViewModel(
                     nostrClient.observeZapReceipts(aTag)
                         .collect { zaps ->
                             Log.d(TAG, "Received ${zaps.size} zap receipts")
-                            _zapReceipts.value = zaps.sortedByDescending { it.createdAt }
+                            val sortedZaps = zaps.sortedByDescending { it.createdAt }
+                            _zapReceipts.value = sortedZaps
+                            // Check if any of these zaps match our pending zap
+                            checkForZapConfirmation(sortedZaps)
                         }
                 }
 
@@ -167,6 +195,113 @@ class PlayerViewModel(
             } finally {
                 _isSendingMessage.value = false
             }
+        }
+    }
+
+    // ==================== Zap Flow Methods ====================
+
+    /**
+     * Start the zap flow by showing the amount selection dialog.
+     */
+    fun startZapFlow() {
+        if (!remoteSignerManager.isAuthenticated()) {
+            Log.w(TAG, "Cannot zap: not authenticated")
+            return
+        }
+
+        val profile = _streamerProfile.value
+        if (profile == null) {
+            Log.w(TAG, "Cannot zap: no streamer profile")
+            _zapFlowState.value = ZapFlowState.Error("Streamer profile not available")
+            return
+        }
+
+        if (profile.lud16.isNullOrEmpty() && profile.lud06.isNullOrEmpty()) {
+            Log.w(TAG, "Cannot zap: streamer has no Lightning address")
+            _zapFlowState.value = ZapFlowState.Error("Streamer has no Lightning address")
+            return
+        }
+
+        Log.d(TAG, "Starting zap flow for ${profile.displayNameOrName}")
+        _zapFlowState.value = ZapFlowState.SelectAmount
+    }
+
+    /**
+     * Handle amount selection and request the Lightning invoice.
+     */
+    fun selectZapAmount(amountSats: Long) {
+        val profile = _streamerProfile.value
+        if (profile == null) {
+            _zapFlowState.value = ZapFlowState.Error("Streamer profile not available")
+            return
+        }
+
+        Log.d(TAG, "Zap amount selected: $amountSats sats")
+        _zapFlowState.value = ZapFlowState.Loading(amountSats)
+        pendingZapAmountSats = amountSats
+        pendingZapTimestamp = System.currentTimeMillis() / 1000
+
+        viewModelScope.launch {
+            try {
+                val result = zapManager.requestZapInvoice(
+                    recipientProfile = profile,
+                    amountSats = amountSats,
+                    comment = "",
+                    aTag = currentStreamATag
+                )
+
+                when (result) {
+                    is ZapInvoiceResult.Success -> {
+                        Log.d(TAG, "Got Lightning invoice: ${result.invoice.take(50)}...")
+                        _zapFlowState.value = ZapFlowState.ShowQR(
+                            invoice = result.invoice,
+                            amountSats = result.amountSats
+                        )
+                    }
+                    is ZapInvoiceResult.Error -> {
+                        Log.e(TAG, "Failed to get invoice: ${result.message}")
+                        _zapFlowState.value = ZapFlowState.Error(result.message)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error requesting zap invoice", e)
+                _zapFlowState.value = ZapFlowState.Error(e.message ?: "Unknown error")
+            }
+        }
+    }
+
+    /**
+     * Dismiss the zap flow overlay.
+     */
+    fun dismissZapFlow() {
+        Log.d(TAG, "Dismissing zap flow")
+        _zapFlowState.value = ZapFlowState.Hidden
+        pendingZapAmountSats = 0
+        pendingZapTimestamp = 0
+    }
+
+    /**
+     * Check if a zap receipt matches our pending zap.
+     * Called when new zap receipts arrive.
+     */
+    private fun checkForZapConfirmation(zaps: List<ZapReceipt>) {
+        // Only check if we're waiting for a zap (showing QR)
+        val currentState = _zapFlowState.value
+        if (currentState !is ZapFlowState.ShowQR) return
+        if (pendingZapTimestamp == 0L) return
+
+        val userPubkey = remoteSignerManager.getUserPubkey() ?: return
+
+        // Look for a zap from us that was created after we started the flow
+        val matchingZap = zaps.find { zap ->
+            zap.senderPubkey == userPubkey &&
+            zap.createdAt >= pendingZapTimestamp - 10 && // Allow 10 second buffer
+            zap.amountSats == pendingZapAmountSats
+        }
+
+        if (matchingZap != null) {
+            Log.d(TAG, "Found matching zap receipt! Confirming zap of ${matchingZap.amountSats} sats")
+            _zapFlowState.value = ZapFlowState.Confirmed(matchingZap.amountSats)
         }
     }
 
