@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.nostrtv.android.data.auth.RemoteSignerManager
 import com.nostrtv.android.data.auth.SessionStore
+import com.nostrtv.android.data.nostr.ChatManager
 import com.nostrtv.android.data.nostr.ChatMessage
 import com.nostrtv.android.data.nostr.LiveStream
 import com.nostrtv.android.data.nostr.NostrClientProvider
@@ -28,6 +29,7 @@ class PlayerViewModel(
     private val sessionStore = SessionStore(context)
     private val remoteSignerManager = RemoteSignerManager(sessionStore)
     private val presenceManager = PresenceManager(remoteSignerManager, nostrClient)
+    private val chatManager = ChatManager(remoteSignerManager, nostrClient)
 
     private val _stream = MutableStateFlow<LiveStream?>(null)
     val stream: StateFlow<LiveStream?> = _stream.asStateFlow()
@@ -44,8 +46,19 @@ class PlayerViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _isAuthenticated = MutableStateFlow(false)
+    val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
+
+    private val _isSendingMessage = MutableStateFlow(false)
+    val isSendingMessage: StateFlow<Boolean> = _isSendingMessage.asStateFlow()
+
     private var currentStreamATag: String? = null
     private var hasAnnouncedPresence = false
+
+    init {
+        // Check authentication status
+        _isAuthenticated.value = remoteSignerManager.isAuthenticated()
+    }
 
     fun loadStream(stream: LiveStream) {
         Log.d(TAG, "Loading stream: ${stream.title}")
@@ -121,6 +134,38 @@ class PlayerViewModel(
                 } else {
                     Log.w("presence", "No presence was announced, skipping leave")
                 }
+            }
+        }
+    }
+
+    /**
+     * Send a chat message to the current stream.
+     */
+    fun sendChatMessage(content: String) {
+        val aTag = currentStreamATag
+        if (aTag == null) {
+            Log.w(TAG, "No stream aTag, cannot send chat message")
+            return
+        }
+
+        if (!remoteSignerManager.isAuthenticated()) {
+            Log.w(TAG, "Not authenticated, cannot send chat message")
+            return
+        }
+
+        viewModelScope.launch {
+            _isSendingMessage.value = true
+            try {
+                val success = chatManager.sendMessage(aTag, content)
+                if (success) {
+                    Log.d(TAG, "Chat message sent successfully")
+                } else {
+                    Log.w(TAG, "Failed to send chat message")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending chat message", e)
+            } finally {
+                _isSendingMessage.value = false
             }
         }
     }
