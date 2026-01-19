@@ -378,7 +378,7 @@ Each checkpoint: manually test, commit, include short PR description.
 | 4 | Following Section | `feature/home-tabs` | #1, #3 | **Done** |
 | 5 | Stream Card Thumbnails | `feature/stream-thumbnails` | None | **Done** |
 | 6 | Chat Manager (Read) | `feature/chat-read` | None | **Done** |
-| 7 | Chat Send | `feature/chat-send` | #1, #6 | Pending |
+| 7 | Chat Send | `feature/chat-send` | #1, #6 | **Done** |
 | 8 | Presence Events | `feature/presence` | #1 | **Done** |
 | 9 | Zap Chyron | `feature/zap-chyron` | None | **Done** |
 | 10 | Streamer Profile + Zap Flow | `feature/zap-flow` | #1 | Pending |
@@ -482,30 +482,37 @@ Building a **TV-first, decentralized media client**. Proceed incrementally.
 
 ### Last Session (Jan 19, 2025)
 **Branch:** `main`
-**PRs:** #8 (merged)
+**PRs:** #9, #10, #11 (all merged)
 
 **Completed:**
-- Fixed NIP-46 remote signing (PR #8)
-  - Rewrote auth using Quartz library's `NostrSignerInternal` for battle-tested NIP-44 encryption
-  - Replaced `BunkerAuthManager.kt` with `RemoteSignerManager.kt`
-  - Changed relay from deprecated `relay.nsec.app` to `relay.primal.net`
-  - Implemented two-step auth flow: connect ack → get_public_key to get correct user pubkey
-  - Fixed session storage with EncryptedSharedPreferences
-- Profile fetching and display
-  - ProfileViewModel fetches kind 0 from relays after authentication
-  - ProfileScreen displays avatar, name, NIP-05 verification, about text
-- HomeScreen user profile display
-  - Shows user avatar and name in header when logged in (instead of "Sign In" button)
-  - Added `fetchUserProfile()` method to HomeViewModel
+- Home Tabs feature (PR #9)
+  - Added Curated tab showing streams from admin's follow list
+  - Added Following tab showing streams from user's follow list
+  - Redesigned header: Admin avatar | nostrTV | Tabs | User profile
+- NIP-53 Presence Events (PR #10)
+  - Created PresenceManager for kind 10312 events
+  - Fixed NIP-46 sign_event params format (must be JSON-stringified)
+  - Added signEvent() to RemoteSignerManager
+  - Added publishEvent() to NostrClient
+  - Added comprehensive NIP-46 documentation to CLAUDE.md
+- Chat Send feature (PR #11)
+  - Created ChatManager for kind 1311 chat messages
+  - Implemented compact ChatFooter UI with text input and send button
+  - Added sendChatMessage() to PlayerViewModel
+  - Messages signed via NIP-46 and published to relays
+
+**Key Discovery - NIP-46 sign_event format:**
+- Params must be JSON strings (stringified), NOT raw JSON objects
+- Correct: `params: ["{\"kind\":1311,...}"]`
+- Wrong: `params: [{"kind":1311,...}]`
+- This is documented in CLAUDE.md for future reference
 
 **Issues Discovered:**
-- None (NIP-46 pubkey issue is now RESOLVED)
+- None
 
 **Next session should:**
-1. Implement Chat Send via NIP-46 bunker (feature #7)
-2. Consider Admin Curated Streams feature (feature #3)
-3. Consider Presence Events (feature #8)
-4. Consider fullscreen chat toggle (video expands when chat hidden)
+1. Implement Streamer Profile + Zap Flow (feature #10) - last remaining feature
+2. Consider fullscreen chat toggle (video expands when chat hidden)
 
 ## End of Session Routine
 
