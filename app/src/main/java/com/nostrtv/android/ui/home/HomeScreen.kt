@@ -23,12 +23,14 @@ import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.nostrtv.android.data.nostr.ConnectionState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -43,6 +45,7 @@ import androidx.tv.material3.Text
 import com.nostrtv.android.data.auth.SessionStore
 import com.nostrtv.android.data.nostr.LiveStream
 import com.nostrtv.android.data.nostr.Profile
+import com.nostrtv.android.viewmodel.HomeTab
 import com.nostrtv.android.viewmodel.HomeViewModel
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -55,8 +58,11 @@ fun HomeScreen(
     val context = LocalContext.current
     val sessionStore = SessionStore(context)
     val savedSession = sessionStore.getSavedSession()
+    val isLoggedIn = savedSession != null
 
-    val streams by viewModel.streams.collectAsState()
+    val selectedTab by viewModel.selectedTab.collectAsState()
+    val curatedStreams by viewModel.curatedStreams.collectAsState()
+    val followingStreams by viewModel.followingStreams.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
     val profiles by viewModel.profiles.collectAsState()
@@ -64,9 +70,26 @@ fun HomeScreen(
     // Get logged-in user's profile if available
     val userProfile = savedSession?.userPubkey?.let { profiles[it] }
 
-    // Fetch user profile if logged in but not yet loaded
-    if (savedSession != null && userProfile == null) {
-        viewModel.fetchUserProfile(savedSession.userPubkey)
+    // Get admin profile
+    val adminProfile = profiles[com.nostrtv.android.data.nostr.NostrClient.ADMIN_PUBKEY]
+
+    // Fetch admin profile
+    LaunchedEffect(Unit) {
+        viewModel.fetchUserProfile(com.nostrtv.android.data.nostr.NostrClient.ADMIN_PUBKEY)
+    }
+
+    // Fetch user profile and follow list if logged in
+    LaunchedEffect(savedSession?.userPubkey) {
+        savedSession?.userPubkey?.let { pubkey ->
+            viewModel.fetchUserProfile(pubkey)
+            viewModel.setUserPubkey(pubkey)
+        } ?: viewModel.setUserPubkey(null)
+    }
+
+    // Select streams based on current tab
+    val streams = when (selectedTab) {
+        HomeTab.CURATED -> curatedStreams
+        HomeTab.FOLLOWING -> followingStreams
     }
 
     Column(
@@ -74,7 +97,7 @@ fun HomeScreen(
             .fillMaxSize()
             .padding(48.dp)
     ) {
-        // Header with title and profile button
+        // Header: Admin Avatar | nostrTV | Tabs | User Profile
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -82,12 +105,67 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "nostrTV",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.primary
-            )
+            // Left side: Admin avatar + nostrTV + Tabs
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Admin Avatar
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (adminProfile?.picture != null) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(adminProfile.picture)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Admin avatar",
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Text(
+                            text = "N",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                }
 
+                // nostrTV title
+                Text(
+                    text = "nostrTV",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                // Tabs
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TabButton(
+                        text = "Curated",
+                        isSelected = selectedTab == HomeTab.CURATED,
+                        onClick = { viewModel.selectTab(HomeTab.CURATED) }
+                    )
+                    TabButton(
+                        text = "Following",
+                        isSelected = selectedTab == HomeTab.FOLLOWING,
+                        onClick = { viewModel.selectTab(HomeTab.FOLLOWING) }
+                    )
+                }
+            }
+
+            // Right side: User profile or Sign In
             if (savedSession != null) {
                 // Show user avatar and name when logged in
                 Row(
@@ -149,59 +227,122 @@ fun HomeScreen(
             }
         }
 
-        if (isLoading && streams.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // Content based on tab
+        when {
+            isLoading && curatedStreams.isEmpty() -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = when (connectionState) {
+                                is ConnectionState.Disconnected -> "Disconnected"
+                                is ConnectionState.Connecting -> "Connecting to relays..."
+                                is ConnectionState.Connected -> "Loading streams..."
+                            },
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (connectionState is ConnectionState.Connected) {
+                            Text(
+                                text = "Subscribed to live streams (kind 30311)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            selectedTab == HomeTab.FOLLOWING && !isLoggedIn -> {
+                // Show sign-in prompt for Following tab when not logged in
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(
+                            text = "Welcome to nostrTV",
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Sign in to see streams from people you follow",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(onClick = onProfileClick) {
+                            Text("Sign In with Nostr")
+                        }
+                    }
+                }
+            }
+            streams.isEmpty() -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = when (connectionState) {
-                            is ConnectionState.Disconnected -> "Disconnected"
-                            is ConnectionState.Connecting -> "Connecting to relays..."
-                            is ConnectionState.Connected -> "Loading streams..."
+                        text = if (selectedTab == HomeTab.FOLLOWING) {
+                            "No live streams from people you follow"
+                        } else {
+                            "No live streams found"
                         },
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    if (connectionState is ConnectionState.Connected) {
-                        Text(
-                            text = "Subscribed to live streams (kind 30311)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                            modifier = Modifier.padding(top = 8.dp)
+                }
+            }
+            else -> {
+                TvLazyVerticalGrid(
+                    columns = TvGridCells.Fixed(4),
+                    contentPadding = PaddingValues(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    items(streams, key = { it.id }) { stream ->
+                        val streamerProfile = stream.streamerPubkey?.let { profiles[it] }
+                        StreamCard(
+                            stream = stream,
+                            streamerProfile = streamerProfile,
+                            onClick = { onStreamClick(stream.id) }
                         )
                     }
                 }
             }
-        } else if (streams.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "No live streams found",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        } else {
-            TvLazyVerticalGrid(
-                columns = TvGridCells.Fixed(4),
-                contentPadding = PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                items(streams, key = { it.id }) { stream ->
-                    val streamerProfile = stream.streamerPubkey?.let { profiles[it] }
-                    StreamCard(
-                        stream = stream,
-                        streamerProfile = streamerProfile,
-                        onClick = { onStreamClick(stream.id) }
-                    )
-                }
-            }
         }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TabButton(
+    text: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (isSelected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceVariant
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 24.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

@@ -29,7 +29,6 @@ fun NostrTVNavHost(
 ) {
     // Shared ViewModel for stream data
     val homeViewModel: HomeViewModel = viewModel()
-    val streams by homeViewModel.streams.collectAsState()
     val profiles by homeViewModel.profiles.collectAsState()
 
     NavHost(
@@ -50,7 +49,7 @@ fun NostrTVNavHost(
 
         composable(Screen.Player.route) { backStackEntry ->
             val streamId = backStackEntry.arguments?.getString("streamId") ?: ""
-            val stream = streams.find { it.id == streamId }
+            val stream = homeViewModel.getStream(streamId)
             val streamerProfile = stream?.streamerPubkey?.let { profiles[it] }
 
             PlayerScreen(

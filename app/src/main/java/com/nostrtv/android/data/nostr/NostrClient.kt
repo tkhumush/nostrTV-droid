@@ -35,6 +35,10 @@ class NostrClient {
 
         private const val LIVE_STREAMS_SUB_ID = "live_streams"
         private const val STREAM_EVENTS_SUB_PREFIX = "stream_"
+        private const val FOLLOW_LIST_SUB_PREFIX = "follows_"
+
+        // Admin pubkey for curated streams
+        const val ADMIN_PUBKEY = "f67a7093fdd829fae5796250cf0932482b1d7f40900110d0d932b5a7fb37755d"
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -44,6 +48,7 @@ class NostrClient {
     private val _profiles = MutableStateFlow<Map<String, Profile>>(emptyMap())
     private val _chatMessages = MutableStateFlow<Map<String, List<ChatMessage>>>(emptyMap())
     private val _zapReceipts = MutableStateFlow<Map<String, List<ZapReceipt>>>(emptyMap())
+    private val _followLists = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: Flow<ConnectionState> = _connectionState.asStateFlow()
@@ -134,6 +139,12 @@ class NostrClient {
         when (event.kind) {
             NostrProtocol.KIND_LIVE_EVENT -> handleLiveStreamEvent(event)
             NostrProtocol.KIND_METADATA -> handleProfileEvent(event)
+            NostrProtocol.KIND_CONTACTS -> {
+                // Follow list (kind 3)
+                if (subscriptionId.startsWith(FOLLOW_LIST_SUB_PREFIX)) {
+                    handleFollowListEvent(event)
+                }
+            }
             NostrProtocol.KIND_LIVE_CHAT -> {
                 // NIP-53 live chat messages (kind 1311)
                 if (subscriptionId.startsWith(STREAM_EVENTS_SUB_PREFIX)) {
@@ -235,6 +246,38 @@ class NostrClient {
             Log.e(TAG, "Failed to parse profile content", e)
             null
         }
+    }
+
+    private fun handleFollowListEvent(event: NostrEvent) {
+        Log.d(TAG, "Received follow list for pubkey: ${event.pubkey.take(16)}...")
+        val followedPubkeys = event.getAllTags("p").mapNotNull { it.getOrNull(1) }.toSet()
+        Log.d(TAG, "Follow list contains ${followedPubkeys.size} pubkeys")
+        _followLists.update { it + (event.pubkey to followedPubkeys) }
+    }
+
+    fun fetchFollowList(pubkey: String) {
+        Log.d(TAG, "Fetching follow list for: ${pubkey.take(16)}...")
+        if (pubkey in _followLists.value) {
+            Log.d(TAG, "Follow list already cached for: ${pubkey.take(16)}")
+            return
+        }
+
+        val filter = NostrFilter(
+            kinds = listOf(NostrProtocol.KIND_CONTACTS),
+            authors = listOf(pubkey),
+            limit = 1
+        )
+
+        val subscriptionMessage = NostrProtocol.createSubscription("${FOLLOW_LIST_SUB_PREFIX}${pubkey.take(8)}", filter)
+        broadcast(subscriptionMessage)
+    }
+
+    fun observeFollowList(pubkey: String): Flow<Set<String>> {
+        return _followLists.asStateFlow().map { it[pubkey] ?: emptySet() }
+    }
+
+    fun getFollowList(pubkey: String): Set<String>? {
+        return _followLists.value[pubkey]
     }
 
     private fun handleChatEvent(subscriptionId: String, event: NostrEvent) {
