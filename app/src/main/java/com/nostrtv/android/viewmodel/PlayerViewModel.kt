@@ -1,23 +1,33 @@
 package com.nostrtv.android.viewmodel
 
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.nostrtv.android.data.auth.RemoteSignerManager
+import com.nostrtv.android.data.auth.SessionStore
 import com.nostrtv.android.data.nostr.ChatMessage
 import com.nostrtv.android.data.nostr.LiveStream
 import com.nostrtv.android.data.nostr.NostrClientProvider
+import com.nostrtv.android.data.nostr.PresenceManager
 import com.nostrtv.android.data.nostr.ZapReceipt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class PlayerViewModel : ViewModel() {
+class PlayerViewModel(
+    context: Context
+) : ViewModel() {
     companion object {
         private const val TAG = "PlayerViewModel"
     }
 
     private val nostrClient = NostrClientProvider.instance
+    private val sessionStore = SessionStore(context)
+    private val remoteSignerManager = RemoteSignerManager(sessionStore)
+    private val presenceManager = PresenceManager(remoteSignerManager, nostrClient)
 
     private val _stream = MutableStateFlow<LiveStream?>(null)
     val stream: StateFlow<LiveStream?> = _stream.asStateFlow()
@@ -35,6 +45,7 @@ class PlayerViewModel : ViewModel() {
     val error: StateFlow<String?> = _error.asStateFlow()
 
     private var currentStreamATag: String? = null
+    private var hasAnnouncedPresence = false
 
     fun loadStream(stream: LiveStream) {
         Log.d(TAG, "Loading stream: ${stream.title}")
@@ -77,13 +88,58 @@ class PlayerViewModel : ViewModel() {
     }
 
     fun publishPresence(joined: Boolean) {
-        // Will be implemented in Bunker Login checkpoint when user is authenticated
-        Log.d(TAG, "Presence event: joined=$joined for stream ${currentStreamATag}")
+        val aTag = currentStreamATag
+        Log.w("presence", "publishPresence called: joined=$joined, aTag=$aTag")
+
+        if (aTag == null) {
+            Log.w("presence", "No stream aTag, skipping presence")
+            return
+        }
+
+        Log.w("presence", "Checking authentication status...")
+        Log.w("presence", "RemoteSignerManager.isAuthenticated: ${remoteSignerManager.isAuthenticated()}")
+        Log.w("presence", "RemoteSignerManager.getUserPubkey: ${remoteSignerManager.getUserPubkey()?.take(16)}")
+
+        viewModelScope.launch {
+            if (joined) {
+                Log.w("presence", "Attempting to publish presence JOIN for stream: $aTag")
+                val success = presenceManager.announceJoin(aTag)
+                if (success) {
+                    hasAnnouncedPresence = true
+                    Log.w("presence", "Successfully announced presence join")
+                } else {
+                    Log.w("presence", "Failed to announce presence (user may not be authenticated)")
+                }
+            } else {
+                if (hasAnnouncedPresence) {
+                    Log.w("presence", "Attempting to publish presence LEAVE")
+                    val success = presenceManager.announceLeave()
+                    if (success) {
+                        hasAnnouncedPresence = false
+                        Log.w("presence", "Successfully announced presence leave")
+                    }
+                } else {
+                    Log.w("presence", "No presence was announced, skipping leave")
+                }
+            }
+        }
     }
 
     override fun onCleared() {
         super.onCleared()
-        publishPresence(false)
+        // Announce leaving when ViewModel is cleared (user navigates away)
+        viewModelScope.launch {
+            if (hasAnnouncedPresence) {
+                presenceManager.announceLeave()
+            }
+        }
         // Don't disconnect - shared NostrClient is managed by HomeViewModel
+    }
+
+    class Factory(private val context: Context) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            @Suppress("UNCHECKED_CAST")
+            return PlayerViewModel(context.applicationContext) as T
+        }
     }
 }

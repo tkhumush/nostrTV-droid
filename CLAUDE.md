@@ -59,6 +59,187 @@ Use: https://github.com/block/nostrino
 
 Wrap in your own repository/service layer, but all relay connections, subscriptions, and event signing must flow through this library.
 
+## NIP-46 Remote Signing Implementation
+
+### Overview
+
+We use NIP-46 (Nostr Connect) for remote signing via external signer apps (like Amber). The implementation uses the **Quartz library** from Amethyst for NIP-44 encryption.
+
+**Key files:**
+- `RemoteSignerManager.kt` - Handles NIP-46 communication with bunker/signer
+- `SessionStore.kt` - Persists session data in EncryptedSharedPreferences
+- `PresenceManager.kt` - Example of signing events (kind 10312)
+
+### Quartz Library Usage
+
+```kotlin
+// Dependencies (in build.gradle)
+implementation("com.github.ArcadeCity:Quartz:1.10.1")
+
+// Key imports
+import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
+import com.vitorpamplona.quartz.nip01Core.signers.NostrSignerInternal
+```
+
+#### Creating Client Keypair
+```kotlin
+// Generate new ephemeral keypair for NIP-46 session
+val clientKeyPair = KeyPair()  // Random keypair
+val clientSigner = NostrSignerInternal(clientKeyPair)
+val clientPublicKey = clientKeyPair.pubKey.toHex()  // 64-char hex (32-byte x-coordinate)
+val clientPrivateKey = clientKeyPair.privKey  // ByteArray
+
+// Restore keypair from saved private key
+val restoredKeyPair = KeyPair(savedPrivateKeyBytes)
+val restoredSigner = NostrSignerInternal(restoredKeyPair)
+```
+
+#### NIP-44 Encryption/Decryption
+```kotlin
+// Encrypt message for recipient
+val encrypted: String = clientSigner.nip44Encrypt(plaintext, recipientPubkeyHex)
+
+// Decrypt message from sender
+val decrypted: String = clientSigner.nip44Decrypt(ciphertext, senderPubkeyHex)
+```
+
+### NIP-46 Request Format
+
+**CRITICAL: All params must be JSON strings (stringified), not raw JSON objects.**
+
+Per the NIP-46 spec and [nostr-tools implementation](https://github.com/nbd-wtf/nostr-tools):
+
+```typescript
+// nostr-tools reference
+let resp = await this.sendRequest('sign_event', [JSON.stringify(event)])
+```
+
+#### Correct Request Structure
+
+```json
+{
+  "id": "unique-request-id",
+  "method": "sign_event",
+  "params": ["{\"kind\":10312,\"content\":\"\",\"tags\":[[\"a\",\"30311:pubkey:d-tag\"]],\"created_at\":1234567890}"]
+}
+```
+
+**Note:** The event object inside `params` array is a **JSON string** (with escaped quotes), NOT a raw JSON object.
+
+#### Incorrect (will fail silently)
+
+```json
+{
+  "id": "unique-request-id",
+  "method": "sign_event",
+  "params": [{"kind":10312,"content":"","tags":[["a","..."]],"created_at":1234567890}]
+}
+```
+
+### Building Unsigned Events for Signing
+
+Per NIP-46, the unsigned event should contain only: `kind`, `content`, `tags`, `created_at`
+
+**Do NOT include:** `pubkey`, `id`, `sig` (signer adds these)
+
+```kotlin
+private fun buildUnsignedEventForSigning(
+    createdAt: Long,
+    kind: Int,
+    tags: List<List<String>>,
+    content: String
+): String {
+    val tagsJson = tags.joinToString(",") { tag ->
+        "[" + tag.joinToString(",") { "\"${escapeJson(it)}\"" } + "]"
+    }
+    return """{"kind":$kind,"content":"${escapeJson(content)}","tags":[$tagsJson],"created_at":$createdAt}"""
+}
+```
+
+### Sending NIP-46 Requests
+
+```kotlin
+private suspend fun sendNip46Request(requestId: String, method: String, params: List<String>) {
+    // All params are JSON strings - escape and quote each one
+    val paramsJson = params.joinToString(",") { "\"${escapeJson(it)}\"" }
+    val request = """{"id":"$requestId","method":"$method","params":[$paramsJson]}"""
+
+    // Encrypt with NIP-44
+    val encrypted = clientSigner.nip44Encrypt(request, bunkerPubkey)
+
+    // Create and send kind 24133 event to relay
+    // ... (see RemoteSignerManager.kt for full implementation)
+}
+```
+
+### Sign Event Flow
+
+```kotlin
+suspend fun signEvent(unsignedEventJson: String): String? {
+    // 1. Wait for relay to be ready
+    if (!isRelayReady) { /* wait */ }
+
+    // 2. Create request with unique ID
+    val requestId = UUID.randomUUID().toString()
+
+    // 3. Register callback for response
+    pendingRequests[requestId] = { response -> /* handle */ }
+
+    // 4. Send NIP-46 request (event is passed as JSON string)
+    sendNip46Request(requestId, "sign_event", listOf(unsignedEventJson))
+
+    // 5. Wait for signer response (with timeout)
+    // Response contains signed event JSON string
+}
+```
+
+### NIP-46 Methods Reference
+
+| Method | Params | Result | Use Case |
+|--------|--------|--------|----------|
+| `get_public_key` | `[]` | `"<pubkey hex>"` | Get user's pubkey after connect |
+| `sign_event` | `["<unsigned event JSON>"]` | `"<signed event JSON>"` | Sign any Nostr event |
+| `nip04_encrypt` | `["<pubkey>", "<plaintext>"]` | `"<ciphertext>"` | Encrypt DM (NIP-04) |
+| `nip04_decrypt` | `["<pubkey>", "<ciphertext>"]` | `"<plaintext>"` | Decrypt DM (NIP-04) |
+| `nip44_encrypt` | `["<pubkey>", "<plaintext>"]` | `"<ciphertext>"` | Encrypt (NIP-44) |
+| `nip44_decrypt` | `["<pubkey>", "<ciphertext>"]` | `"<plaintext>"` | Decrypt (NIP-44) |
+
+### Common Pitfalls
+
+1. **Params must be strings**: Always JSON.stringify the event before passing to params
+2. **Don't include pubkey in unsigned event**: Signer adds its own pubkey
+3. **Wait for relay ready**: WebSocket must be connected before sending requests
+4. **Handle reconnection**: On session restore, don't call `get_public_key` if already authenticated
+5. **Pubkey format**: Use Quartz's `KeyPair` which correctly produces 64-char hex (32-byte x-coordinate)
+
+### Example: Signing a Presence Event
+
+```kotlin
+// In PresenceManager.kt
+suspend fun announceJoin(streamATag: String): Boolean {
+    if (!remoteSignerManager.isAuthenticated()) return false
+
+    val createdAt = System.currentTimeMillis() / 1000
+    val unsignedEvent = buildUnsignedEventForSigning(
+        createdAt = createdAt,
+        kind = 10312,  // NIP-53 presence
+        tags = listOf(listOf("a", streamATag)),
+        content = ""
+    )
+
+    val signedEvent = remoteSignerManager.signEvent(unsignedEvent) ?: return false
+
+    nostrClient.publishEvent(signedEvent)
+    return true
+}
+```
+
+### References
+
+- [NIP-46 Specification](https://github.com/nostr-protocol/nips/blob/master/46.md)
+- [nostr-tools NIP-46](https://github.com/nbd-wtf/nostr-tools) - Reference implementation
+- [Quartz Library](https://github.com/ArcadeCity/Quartz) - NIP-44 encryption
+
 ## User Workflows
 
 ### App Launch
@@ -193,12 +374,12 @@ Each checkpoint: manually test, commit, include short PR description.
 |---|---------|--------|--------------|--------|
 | 1 | NIP-46 Remote Sign-in | `feature/nip46-auth` | None | **Done** |
 | 2 | User Profile Page | `feature/stream-thumbnails` | #1 | **Done** |
-| 3 | Admin Curated Streams | `feature/curated-streams` | None | Pending |
-| 4 | Following Section | `feature/following` | #1, #3 | Pending |
+| 3 | Admin Curated Streams | `feature/home-tabs` | None | **Done** |
+| 4 | Following Section | `feature/home-tabs` | #1, #3 | **Done** |
 | 5 | Stream Card Thumbnails | `feature/stream-thumbnails` | None | **Done** |
 | 6 | Chat Manager (Read) | `feature/chat-read` | None | **Done** |
 | 7 | Chat Send | `feature/chat-send` | #1, #6 | Pending |
-| 8 | Presence Events | `feature/presence` | #1 | Pending |
+| 8 | Presence Events | `feature/presence` | #1 | **Done** |
 | 9 | Zap Chyron | `feature/zap-chyron` | None | **Done** |
 | 10 | Streamer Profile + Zap Flow | `feature/zap-flow` | #1 | Pending |
 
@@ -275,8 +456,8 @@ Each checkpoint: manually test, commit, include short PR description.
 ### Admin Configuration
 
 ```kotlin
-// Admin pubkey for curated streams (to be configured)
-const val ADMIN_PUBKEY = "YOUR_ADMIN_PUBKEY_HERE"
+// Admin pubkey for curated streams (in NostrClient.kt)
+const val ADMIN_PUBKEY = "f67a7093fdd829fae5796250cf0932482b1d7f40900110d0d932b5a7fb37755d"
 ```
 
 ## Non-Goals
