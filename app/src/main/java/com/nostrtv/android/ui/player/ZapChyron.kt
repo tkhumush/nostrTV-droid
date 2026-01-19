@@ -50,7 +50,6 @@ private const val ZAP_DISPLAY_DURATION_MS = 3000L
 @Composable
 fun ZapChyron(
     zapReceipts: List<ZapReceipt>,
-    isAuthenticated: Boolean,
     onZapClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -121,31 +120,29 @@ fun ZapChyron(
             }
         }
 
-        // Zap button on the right (only when authenticated)
-        if (isAuthenticated) {
-            Surface(
-                onClick = onZapClick,
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .size(28.dp),
-                shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(
-                    shape = RoundedCornerShape(6.dp)
-                ),
-                colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
-                    containerColor = Color(0xFFFFA500).copy(alpha = 0.2f),
-                    focusedContainerColor = Color(0xFFFFA500).copy(alpha = 0.5f)
-                )
+        // Zap button on the right (always visible)
+        Surface(
+            onClick = onZapClick,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .size(28.dp),
+            shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(
+                shape = RoundedCornerShape(6.dp)
+            ),
+            colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                containerColor = Color(0xFFFFA500).copy(alpha = 0.2f),
+                focusedContainerColor = Color(0xFFFFA500).copy(alpha = 0.5f)
+            )
+        ) {
+            Box(
+                modifier = Modifier.size(28.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier.size(28.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "\u26A1",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color(0xFFFFA500)
-                    )
-                }
+                Text(
+                    text = "\u26A1",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color(0xFFFFA500)
+                )
             }
         }
     }

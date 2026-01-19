@@ -59,6 +59,7 @@ import androidx.tv.material3.Text
 import com.nostrtv.android.data.nostr.ChatMessage
 import com.nostrtv.android.data.nostr.LiveStream
 import com.nostrtv.android.data.nostr.Profile
+import com.nostrtv.android.ui.auth.SignInPromptOverlay
 import com.nostrtv.android.ui.profile.StreamerProfileOverlay
 import com.nostrtv.android.ui.zap.ZapFlowOverlay
 import com.nostrtv.android.ui.zap.ZapFlowState
@@ -72,6 +73,7 @@ import java.util.Locale
 fun PlayerScreen(
     streamId: String,
     onBack: () -> Unit,
+    onNavigateToSignIn: () -> Unit,
     stream: LiveStream? = null,
     streamerProfile: Profile? = null,
     viewModel: PlayerViewModel = viewModel(
@@ -82,9 +84,9 @@ fun PlayerScreen(
     val chatMessages by viewModel.chatMessages.collectAsState()
     val zapReceipts by viewModel.zapReceipts.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
-    val isAuthenticated by viewModel.isAuthenticated.collectAsState()
     val zapFlowState by viewModel.zapFlowState.collectAsState()
     val currentStreamerProfile by viewModel.streamerProfile.collectAsState()
+    val showSignInPrompt by viewModel.showSignInPrompt.collectAsState()
 
     // Local UI state
     var showStreamerProfile by remember { mutableStateOf(false) }
@@ -173,7 +175,6 @@ fun PlayerScreen(
                 // Zap Chyron Footer (below video)
                 ZapChyron(
                     zapReceipts = zapReceipts,
-                    isAuthenticated = isAuthenticated,
                     onZapClick = { viewModel.startZapFlow() },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -206,6 +207,16 @@ fun PlayerScreen(
             profile = currentStreamerProfile,
             isVisible = showStreamerProfile,
             onDismiss = { showStreamerProfile = false }
+        )
+
+        // Sign-In Prompt Overlay
+        SignInPromptOverlay(
+            isVisible = showSignInPrompt,
+            onSignIn = {
+                viewModel.dismissSignInPrompt()
+                onNavigateToSignIn()
+            },
+            onDismiss = { viewModel.dismissSignInPrompt() }
         )
     }
 }

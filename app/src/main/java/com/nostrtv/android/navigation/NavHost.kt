@@ -56,7 +56,8 @@ fun NostrTVNavHost(
                 streamId = streamId,
                 stream = stream,
                 streamerProfile = streamerProfile,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onNavigateToSignIn = { navController.navigate(Screen.Profile.route) }
             )
         }
 
