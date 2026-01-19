@@ -6,28 +6,24 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -36,7 +32,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.Button
@@ -44,13 +39,15 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.nostrtv.android.data.auth.AuthState
-import com.nostrtv.android.data.nostr.Profile
 import com.nostrtv.android.viewmodel.ProfileViewModel
 
+/**
+ * ProfileScreen with NIP-46 remote signing authentication.
+ */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun ProfileScreen(
@@ -60,23 +57,8 @@ fun ProfileScreen(
     )
 ) {
     val authState by viewModel.authState.collectAsState()
-    val userProfile by viewModel.userProfile.collectAsState()
-    val isLoadingProfile by viewModel.isLoadingProfile.collectAsState()
-    var previousState by remember { mutableStateOf<AuthState?>(null) }
-    var isNewLogin by remember { mutableStateOf(false) }
-
-    // Auto-navigate back when login succeeds (transition from non-authenticated to authenticated)
-    LaunchedEffect(authState) {
-        if (authState is AuthState.Authenticated &&
-            previousState != null &&
-            previousState !is AuthState.Authenticated) {
-            isNewLogin = true
-            // Small delay to show success before navigating
-            kotlinx.coroutines.delay(1500)
-            onBack()
-        }
-        previousState = authState
-    }
+    val connectionUri by viewModel.connectionUri.collectAsState()
+    val userProfile = viewModel.userProfile.collectAsState().value
 
     Box(
         modifier = Modifier
@@ -85,8 +67,16 @@ fun ProfileScreen(
             .padding(48.dp)
             .onKeyEvent { keyEvent ->
                 if (keyEvent.type == KeyEventType.KeyUp && keyEvent.key == Key.Back) {
-                    onBack()
-                    true
+                    when (authState) {
+                        is AuthState.WaitingForScan -> {
+                            viewModel.cancelLogin()
+                            true
+                        }
+                        else -> {
+                            onBack()
+                            true
+                        }
+                    }
                 } else false
             }
     ) {
@@ -107,41 +97,29 @@ fun ProfileScreen(
                         onLoginClick = { viewModel.startLogin() }
                     )
                 }
-
-                is AuthState.WaitingForConnection -> {
-                    WaitingForConnectionContent(
-                        connectionString = state.connectionString,
-                        onCancel = { viewModel.cancelLogin() }
+                is AuthState.WaitingForScan -> {
+                    WaitingForScanContent(
+                        connectionUri = connectionUri ?: "",
+                        onCancelClick = { viewModel.cancelLogin() }
                     )
                 }
-
                 is AuthState.Connecting -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Connecting to bunker...",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
+                    ConnectingContent()
                 }
-
                 is AuthState.Authenticated -> {
                     AuthenticatedContent(
                         pubkey = state.pubkey,
-                        profile = userProfile,
-                        isLoadingProfile = isLoadingProfile,
-                        onLogout = { viewModel.logout() },
-                        isNewLogin = isNewLogin
+                        profileName = userProfile?.name ?: userProfile?.displayName,
+                        profilePicture = userProfile?.picture,
+                        profileAbout = userProfile?.about,
+                        profileNip05 = userProfile?.nip05,
+                        onLogoutClick = { viewModel.logout() }
                     )
                 }
-
                 is AuthState.Error -> {
                     ErrorContent(
                         message = state.message,
-                        onRetry = { viewModel.startLogin() }
+                        onRetryClick = { viewModel.startLogin() }
                     )
                 }
             }
@@ -160,7 +138,7 @@ fun ProfileScreen(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun NotAuthenticatedContent(
+private fun NotAuthenticatedContent(
     onLoginClick: () -> Unit
 ) {
     Column(
@@ -179,7 +157,7 @@ fun NotAuthenticatedContent(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Use your Nostr bunker app to sign in.\nThis allows you to send chat messages and zaps.",
+            text = "Connect with your Nostr signer app (like Amber)\nto send chat messages and zaps.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
             textAlign = TextAlign.Center
@@ -195,55 +173,57 @@ fun NotAuthenticatedContent(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun WaitingForConnectionContent(
-    connectionString: String,
-    onCancel: () -> Unit
+private fun WaitingForScanContent(
+    connectionUri: String,
+    onCancelClick: () -> Unit
 ) {
-    var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
-
-    LaunchedEffect(connectionString) {
-        qrBitmap = generateQRCode(connectionString, 400)
-    }
-
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "Scan with your Bunker app",
+            text = "Scan with your signer app",
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground
         )
 
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Open Amber or another NIP-46 compatible signer\nand scan the QR code below",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+            textAlign = TextAlign.Center
+        )
+
         Spacer(modifier = Modifier.height(24.dp))
 
-        qrBitmap?.let { bitmap ->
-            Box(
-                modifier = Modifier
-                    .size(300.dp)
-                    .background(Color.White, RoundedCornerShape(16.dp))
-                    .padding(16.dp)
-            ) {
-                Image(
-                    bitmap = bitmap.asImageBitmap(),
-                    contentDescription = "QR Code for bunker connection",
-                    modifier = Modifier.fillMaxSize()
-                )
+        // QR Code
+        if (connectionUri.isNotEmpty()) {
+            val qrBitmap = remember(connectionUri) {
+                generateQRCode(connectionUri, 280)
+            }
+            qrBitmap?.let {
+                Box(
+                    modifier = Modifier
+                        .size(300.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.White)
+                        .padding(10.dp)
+                ) {
+                    Image(
+                        bitmap = it.asImageBitmap(),
+                        contentDescription = "QR Code",
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Text(
-            text = "Waiting for connection...",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Button(onClick = onCancel) {
+        Button(onClick = onCancelClick) {
             Text("Cancel")
         }
     }
@@ -251,181 +231,132 @@ fun WaitingForConnectionContent(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun AuthenticatedContent(
+private fun ConnectingContent() {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Spacer(modifier = Modifier.height(64.dp))
+
+        Text(
+            text = "Connecting...",
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Please approve the connection request in your signer app",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun AuthenticatedContent(
     pubkey: String,
-    profile: Profile?,
-    isLoadingProfile: Boolean,
-    onLogout: () -> Unit,
-    isNewLogin: Boolean = false
+    profileName: String?,
+    profilePicture: String?,
+    profileAbout: String?,
+    profileNip05: String?,
+    onLogoutClick: () -> Unit
 ) {
-    if (isNewLogin) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Spacer(modifier = Modifier.height(64.dp))
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(modifier = Modifier.height(32.dp))
 
-            Text(
-                text = "Login Successful!",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Returning to streams...",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-            )
-        }
-    } else {
-        // Two-column layout for wide TV screens
-        Row(
+        // Profile picture
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 32.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.Top
+                .size(120.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
         ) {
-            // Left Column - Profile Picture
-            Column(
-                modifier = Modifier.weight(1f),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            if (profilePicture != null) {
+                AsyncImage(
+                    model = profilePicture,
+                    contentDescription = "Profile picture",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                // Placeholder
                 Box(
                     modifier = Modifier
-                        .size(200.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (profile?.picture != null) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(profile.picture)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "Profile picture",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Text(
-                            text = profile?.displayNameOrName?.take(2)?.uppercase()
-                                ?: pubkey.take(2).uppercase(),
-                            style = MaterialTheme.typography.displayMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                Button(onClick = onLogout) {
-                    Text("Logout")
-                }
-            }
-
-            Spacer(modifier = Modifier.width(48.dp))
-
-            // Right Column - Profile Details
-            Column(
-                modifier = Modifier.weight(1.5f),
-                horizontalAlignment = Alignment.Start
-            ) {
-                // Display Name
-                Text(
-                    text = profile?.displayNameOrName ?: "Loading...",
-                    style = MaterialTheme.typography.displaySmall,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // NIP-05 / Nostr Address
-                ProfileInfoRow(
-                    label = "Nostr Address",
-                    value = profile?.nip05,
-                    valueColor = MaterialTheme.colorScheme.primary
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Public Key
-                ProfileInfoRow(
-                    label = "Public Key",
-                    value = "${pubkey.take(16)}...${pubkey.takeLast(8)}"
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Lightning Address
-                ProfileInfoRow(
-                    label = "Lightning",
-                    value = profile?.lud16,
-                    valueColor = MaterialTheme.colorScheme.tertiary
-                )
-
-                // Bio / About
-                profile?.about?.let { about ->
-                    Spacer(modifier = Modifier.height(24.dp))
-
                     Text(
-                        text = "About",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = about,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
-                        maxLines = 5,
-                        overflow = TextOverflow.Ellipsis
+                        text = (profileName?.firstOrNull() ?: pubkey.firstOrNull() ?: '?').uppercase(),
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = MaterialTheme.colorScheme.onPrimary
                     )
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Name
+        Text(
+            text = profileName ?: "Nostr User",
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+
+        // NIP-05 verification (if available)
+        if (profileNip05 != null && profileNip05.isNotBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "✓ $profileNip05",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Pubkey (truncated)
+        Text(
+            text = "npub: ${pubkey.take(8)}...${pubkey.takeLast(8)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+        )
+
+        // About (if available)
+        if (profileAbout != null && profileAbout.isNotBlank()) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = profileAbout.take(200),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 32.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Logout button
+        Button(onClick = onLogoutClick) {
+            Text("Logout")
         }
     }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ProfileInfoRow(
-    label: String,
-    value: String?,
-    valueColor: Color = MaterialTheme.colorScheme.onBackground
-) {
-    if (value != null) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "$label: ",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
-                modifier = Modifier.width(140.dp)
-            )
-            Text(
-                text = value,
-                style = MaterialTheme.typography.bodyLarge,
-                color = valueColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-fun ErrorContent(
+private fun ErrorContent(
     message: String,
-    onRetry: () -> Unit
+    onRetryClick: () -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -451,24 +382,34 @@ fun ErrorContent(
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        Button(onClick = onRetry) {
+        Button(onClick = onRetryClick) {
             Text("Try Again")
         }
     }
 }
 
+/**
+ * Generate a QR code bitmap from a string.
+ */
 private fun generateQRCode(content: String, size: Int): Bitmap? {
     return try {
-        val writer = QRCodeWriter()
-        val bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size)
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
-
+        val hints = mapOf(
+            EncodeHintType.MARGIN to 0,
+            EncodeHintType.CHARACTER_SET to "UTF-8"
+        )
+        val bitMatrix = QRCodeWriter().encode(
+            content,
+            BarcodeFormat.QR_CODE,
+            size,
+            size,
+            hints
+        )
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         for (x in 0 until size) {
             for (y in 0 until size) {
                 bitmap.setPixel(
                     x, y,
-                    if (bitMatrix[x, y]) android.graphics.Color.BLACK
-                    else android.graphics.Color.WHITE
+                    if (bitMatrix[x, y]) Color.Black.toArgb() else Color.White.toArgb()
                 )
             }
         }

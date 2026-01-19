@@ -1,17 +1,12 @@
 package com.nostrtv.android.data.auth
 
 import android.content.Context
-import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Secure storage for user session and NIP-46 authentication data.
- * Uses EncryptedSharedPreferences for sensitive data like private keys.
+ * Secure session storage using Android Keystore-backed EncryptedSharedPreferences.
  */
 class SessionStore(context: Context) {
     companion object {
@@ -22,14 +17,13 @@ class SessionStore(context: Context) {
         private const val KEY_CLIENT_PRIVATE_KEY = "client_private_key"
         private const val KEY_RELAY = "relay"
         private const val KEY_SECRET = "secret"
-        private const val KEY_IS_AUTHENTICATED = "is_authenticated"
     }
 
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
         .build()
 
-    private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
+    private val prefs = EncryptedSharedPreferences.create(
         context,
         PREFS_NAME,
         masterKey,
@@ -37,50 +31,37 @@ class SessionStore(context: Context) {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
 
-    private val _isAuthenticated = MutableStateFlow(prefs.getBoolean(KEY_IS_AUTHENTICATED, false))
-    val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
-
-    private val _userPubkey = MutableStateFlow(prefs.getString(KEY_USER_PUBKEY, null))
-    val userPubkey: StateFlow<String?> = _userPubkey.asStateFlow()
-
     /**
-     * Save a complete NIP-46 session.
+     * Save session data securely.
      */
     fun saveSession(
-        pubkey: String,
+        userPubkey: String,
         bunkerPubkey: String,
         clientPrivateKey: String,
         relay: String,
         secret: String
     ) {
-        Log.d(TAG, "Saving session for pubkey: ${pubkey.take(8)}...")
+        Log.d(TAG, "Saving session for user: ${userPubkey.take(16)}...")
         prefs.edit()
-            .putString(KEY_USER_PUBKEY, pubkey)
+            .putString(KEY_USER_PUBKEY, userPubkey)
             .putString(KEY_BUNKER_PUBKEY, bunkerPubkey)
             .putString(KEY_CLIENT_PRIVATE_KEY, clientPrivateKey)
             .putString(KEY_RELAY, relay)
             .putString(KEY_SECRET, secret)
-            .putBoolean(KEY_IS_AUTHENTICATED, true)
             .apply()
-
-        _userPubkey.value = pubkey
-        _isAuthenticated.value = true
     }
 
     /**
-     * Get the saved session data.
+     * Get saved session if exists.
      */
     fun getSavedSession(): SavedSession? {
-        if (!prefs.getBoolean(KEY_IS_AUTHENTICATED, false)) {
-            return null
-        }
-
         val userPubkey = prefs.getString(KEY_USER_PUBKEY, null) ?: return null
         val bunkerPubkey = prefs.getString(KEY_BUNKER_PUBKEY, null) ?: return null
         val clientPrivateKey = prefs.getString(KEY_CLIENT_PRIVATE_KEY, null) ?: return null
         val relay = prefs.getString(KEY_RELAY, null) ?: return null
         val secret = prefs.getString(KEY_SECRET, null) ?: return null
 
+        Log.d(TAG, "Restored session for user: ${userPubkey.take(16)}...")
         return SavedSession(
             userPubkey = userPubkey,
             bunkerPubkey = bunkerPubkey,
@@ -91,27 +72,23 @@ class SessionStore(context: Context) {
     }
 
     /**
-     * Clear all session data.
+     * Clear saved session.
      */
     fun clearSession() {
         Log.d(TAG, "Clearing session")
         prefs.edit().clear().apply()
-        _userPubkey.value = null
-        _isAuthenticated.value = false
     }
 
     /**
-     * Check if there's a valid saved session.
+     * Check if a session exists.
      */
-    fun hasValidSession(): Boolean {
-        return prefs.getBoolean(KEY_IS_AUTHENTICATED, false) &&
-                !prefs.getString(KEY_USER_PUBKEY, null).isNullOrEmpty() &&
-                !prefs.getString(KEY_CLIENT_PRIVATE_KEY, null).isNullOrEmpty()
+    fun hasSession(): Boolean {
+        return prefs.getString(KEY_USER_PUBKEY, null) != null
     }
 }
 
 /**
- * Data class representing a saved NIP-46 session.
+ * Saved session data.
  */
 data class SavedSession(
     val userPubkey: String,
