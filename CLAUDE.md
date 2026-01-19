@@ -381,7 +381,7 @@ Each checkpoint: manually test, commit, include short PR description.
 | 7 | Chat Send | `feature/chat-send` | #1, #6 | **Done** |
 | 8 | Presence Events | `feature/presence` | #1 | **Done** |
 | 9 | Zap Chyron | `feature/zap-chyron` | None | **Done** |
-| 10 | Streamer Profile + Zap Flow | `feature/zap-flow` | #1 | Pending |
+| 10 | Streamer Profile + Zap Flow | `feature/zap-flow` | #1 | **Done** |
 
 ### Feature Details
 
@@ -482,37 +482,33 @@ Building a **TV-first, decentralized media client**. Proceed incrementally.
 
 ### Last Session (Jan 19, 2025)
 **Branch:** `main`
-**PRs:** #9, #10, #11 (all merged)
+**PRs:** #14, #15 (merged)
 
 **Completed:**
-- Home Tabs feature (PR #9)
-  - Added Curated tab showing streams from admin's follow list
-  - Added Following tab showing streams from user's follow list
-  - Redesigned header: Admin avatar | nostrTV | Tabs | User profile
-- NIP-53 Presence Events (PR #10)
-  - Created PresenceManager for kind 10312 events
-  - Fixed NIP-46 sign_event params format (must be JSON-stringified)
-  - Added signEvent() to RemoteSignerManager
-  - Added publishEvent() to NostrClient
-  - Added comprehensive NIP-46 documentation to CLAUDE.md
-- Chat Send feature (PR #11)
-  - Created ChatManager for kind 1311 chat messages
-  - Implemented compact ChatFooter UI with text input and send button
-  - Added sendChatMessage() to PlayerViewModel
-  - Messages signed via NIP-46 and published to relays
-
-**Key Discovery - NIP-46 sign_event format:**
-- Params must be JSON strings (stringified), NOT raw JSON objects
-- Correct: `params: ["{\"kind\":1311,...}"]`
-- Wrong: `params: [{"kind":1311,...}]`
-- This is documented in CLAUDE.md for future reference
+- Sign-in prompt for unauthenticated interactions (PR #14)
+  - Always show zap button in chyron regardless of auth status
+  - Created SignInPromptOverlay with friendly message
+  - Show prompt when unauthenticated users try to zap or chat
+  - Navigate directly to Profile screen for sign-in
+- Home screen UI redesign (PR #15)
+  - Removed "nostrTV" text from header
+  - Updated tab buttons with transparent bg, white pill focus, dark text
+  - Moved stream cards to bottom in horizontal scrolling row
+  - Added fullscreen background showing focused stream thumbnail
+  - Added crossfade transition when background changes
+  - Added gradient overlay (dark at top for header, fades to transparent)
+  - Added stream title and streamer name above cards (updates on focus)
+  - Reduced card size by 20% with white border
+  - Disabled card scale/glow effects
+- Added README.md for the project
 
 **Issues Discovered:**
 - None
 
 **Next session should:**
-1. Implement Streamer Profile + Zap Flow (feature #10) - last remaining feature
+1. Add screenshots to README.md
 2. Consider fullscreen chat toggle (video expands when chat hidden)
+3. Polish and bug fixes based on hardware testing
 
 ## End of Session Routine
 
