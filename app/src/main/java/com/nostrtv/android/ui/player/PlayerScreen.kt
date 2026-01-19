@@ -59,6 +59,7 @@ import androidx.tv.material3.Text
 import com.nostrtv.android.data.nostr.ChatMessage
 import com.nostrtv.android.data.nostr.LiveStream
 import com.nostrtv.android.data.nostr.Profile
+import com.nostrtv.android.ui.profile.StreamerProfileOverlay
 import com.nostrtv.android.ui.zap.ZapFlowOverlay
 import com.nostrtv.android.ui.zap.ZapFlowState
 import com.nostrtv.android.viewmodel.PlayerViewModel
@@ -84,6 +85,9 @@ fun PlayerScreen(
     val isAuthenticated by viewModel.isAuthenticated.collectAsState()
     val zapFlowState by viewModel.zapFlowState.collectAsState()
     val currentStreamerProfile by viewModel.streamerProfile.collectAsState()
+
+    // Local UI state
+    var showStreamerProfile by remember { mutableStateOf(false) }
 
     // Load stream data when provided
     LaunchedEffect(stream) {
@@ -119,10 +123,10 @@ fun PlayerScreen(
                 // Stream Info Header (above video) - clickable
                 StreamInfoHeader(
                     stream = currentStream,
-                    streamerProfile = streamerProfile,
+                    streamerProfile = currentStreamerProfile,
                     onClick = {
-                        // TODO: Navigate to streamer profile
-                        Log.d("PlayerScreen", "Stream info clicked: ${currentStream?.streamerPubkey}")
+                        Log.d("PlayerScreen", "Opening streamer profile: ${currentStreamerProfile?.displayNameOrName}")
+                        showStreamerProfile = true
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -196,6 +200,13 @@ fun PlayerScreen(
             onAmountSelected = { amount -> viewModel.selectZapAmount(amount) },
             onDismiss = { viewModel.dismissZapFlow() }
         )
+
+        // Streamer Profile Overlay
+        StreamerProfileOverlay(
+            profile = currentStreamerProfile,
+            isVisible = showStreamerProfile,
+            onDismiss = { showStreamerProfile = false }
+        )
     }
 }
 
@@ -213,9 +224,13 @@ fun StreamInfoHeader(
         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(
             shape = RoundedCornerShape(0.dp)
         ),
+        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(
+            scale = 1f,
+            focusedScale = 1f  // Disable size increase on focus
+        ),
         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
             containerColor = Color.Black.copy(alpha = 0.8f),
-            focusedContainerColor = Color.Black.copy(alpha = 0.9f)
+            focusedContainerColor = Color(0xFF3a3a3a)  // Grey color on focus
         )
     ) {
         Row(
