@@ -64,6 +64,10 @@ class PlayerViewModel(
     private val _streamerProfile = MutableStateFlow<Profile?>(null)
     val streamerProfile: StateFlow<Profile?> = _streamerProfile.asStateFlow()
 
+    // Sign-in prompt state
+    private val _showSignInPrompt = MutableStateFlow(false)
+    val showSignInPrompt: StateFlow<Boolean> = _showSignInPrompt.asStateFlow()
+
     private var currentStreamATag: String? = null
     private var hasAnnouncedPresence = false
     private var pendingZapAmountSats: Long = 0
@@ -168,6 +172,7 @@ class PlayerViewModel(
 
     /**
      * Send a chat message to the current stream.
+     * If not authenticated, shows the sign-in prompt instead.
      */
     fun sendChatMessage(content: String) {
         val aTag = currentStreamATag
@@ -177,7 +182,8 @@ class PlayerViewModel(
         }
 
         if (!remoteSignerManager.isAuthenticated()) {
-            Log.w(TAG, "Not authenticated, cannot send chat message")
+            Log.d(TAG, "User not authenticated, showing sign-in prompt")
+            _showSignInPrompt.value = true
             return
         }
 
@@ -202,10 +208,12 @@ class PlayerViewModel(
 
     /**
      * Start the zap flow by showing the amount selection dialog.
+     * If not authenticated, shows the sign-in prompt instead.
      */
     fun startZapFlow() {
         if (!remoteSignerManager.isAuthenticated()) {
-            Log.w(TAG, "Cannot zap: not authenticated")
+            Log.d(TAG, "User not authenticated, showing sign-in prompt")
+            _showSignInPrompt.value = true
             return
         }
 
@@ -278,6 +286,14 @@ class PlayerViewModel(
         _zapFlowState.value = ZapFlowState.Hidden
         pendingZapAmountSats = 0
         pendingZapTimestamp = 0
+    }
+
+    /**
+     * Dismiss the sign-in prompt overlay.
+     */
+    fun dismissSignInPrompt() {
+        Log.d(TAG, "Dismissing sign-in prompt")
+        _showSignInPrompt.value = false
     }
 
     /**
