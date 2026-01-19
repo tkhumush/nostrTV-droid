@@ -8,6 +8,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.nostrtv.android.data.nostr.Profile
 import com.nostrtv.android.ui.home.HomeScreen
 import com.nostrtv.android.ui.player.PlayerScreen
 import com.nostrtv.android.ui.profile.ProfileScreen
@@ -29,6 +30,7 @@ fun NostrTVNavHost(
     // Shared ViewModel for stream data
     val homeViewModel: HomeViewModel = viewModel()
     val streams by homeViewModel.streams.collectAsState()
+    val profiles by homeViewModel.profiles.collectAsState()
 
     NavHost(
         navController = navController,
@@ -49,10 +51,12 @@ fun NostrTVNavHost(
         composable(Screen.Player.route) { backStackEntry ->
             val streamId = backStackEntry.arguments?.getString("streamId") ?: ""
             val stream = streams.find { it.id == streamId }
+            val streamerProfile = stream?.streamerPubkey?.let { profiles[it] }
 
             PlayerScreen(
                 streamId = streamId,
                 stream = stream,
+                streamerProfile = streamerProfile,
                 onBack = { navController.popBackStack() }
             )
         }

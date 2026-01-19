@@ -57,6 +57,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nostrtv.android.data.nostr.ChatMessage
 import com.nostrtv.android.data.nostr.LiveStream
+import com.nostrtv.android.data.nostr.Profile
 import com.nostrtv.android.viewmodel.PlayerViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -68,6 +69,7 @@ fun PlayerScreen(
     streamId: String,
     onBack: () -> Unit,
     stream: LiveStream? = null,
+    streamerProfile: Profile? = null,
     viewModel: PlayerViewModel = viewModel()
 ) {
     val currentStream by viewModel.stream.collectAsState()
@@ -109,6 +111,7 @@ fun PlayerScreen(
                 // Stream Info Header (above video) - clickable
                 StreamInfoHeader(
                     stream = currentStream,
+                    streamerProfile = streamerProfile,
                     onClick = {
                         // TODO: Navigate to streamer profile
                         Log.d("PlayerScreen", "Stream info clicked: ${currentStream?.streamerPubkey}")
@@ -181,6 +184,7 @@ fun PlayerScreen(
 @Composable
 fun StreamInfoHeader(
     stream: LiveStream?,
+    streamerProfile: Profile?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -198,40 +202,75 @@ fun StreamInfoHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .height(35.dp)
+                .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             stream?.let { s ->
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = s.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White,
-                        maxLines = 1
+                // Streamer Avatar
+                val profilePicture = streamerProfile?.picture
+                if (!profilePicture.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(profilePicture)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Streamer avatar",
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
                     )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                } else {
+                    // Placeholder avatar
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                        contentAlignment = Alignment.Center
                     ) {
+                        val initial = streamerProfile?.displayNameOrName?.firstOrNull()
+                            ?: s.streamerName?.firstOrNull()
+                            ?: '?'
                         Text(
-                            text = s.streamerName ?: "Unknown streamer",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.7f)
+                            text = initial.uppercase(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White
                         )
-                        if (s.viewerCount > 0) {
-                            Text(
-                                text = "${s.viewerCount} viewers",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
                     }
+                }
+
+                // Streamer name
+                Text(
+                    text = streamerProfile?.displayNameOrName ?: s.streamerName ?: "Unknown",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1
+                )
+
+                // Stream title
+                Text(
+                    text = s.title,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Viewer count
+                if (s.viewerCount > 0) {
+                    Text(
+                        text = "${s.viewerCount} viewers",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.7f)
+                    )
                 }
             } ?: run {
                 Text(
                     text = "Loading...",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.labelMedium,
                     color = Color.White.copy(alpha = 0.5f)
                 )
             }
