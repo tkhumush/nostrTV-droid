@@ -26,6 +26,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
 import com.nostrtv.android.data.nostr.ConnectionState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -139,15 +143,6 @@ fun HomeScreen(
                     }
                 }
 
-                // nostrTV title
-                Text(
-                    text = "nostrTV",
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-
-                Spacer(modifier = Modifier.width(16.dp))
-
                 // Tabs
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -221,8 +216,34 @@ fun HomeScreen(
                 }
             } else {
                 // Show Sign In button when not logged in
-                Button(onClick = onProfileClick) {
-                    Text("Sign In")
+                var signInFocused by remember { mutableStateOf(false) }
+
+                androidx.tv.material3.Surface(
+                    onClick = onProfileClick,
+                    modifier = Modifier.onFocusChanged { signInFocused = it.isFocused },
+                    shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(
+                        shape = RoundedCornerShape(24.dp)
+                    ),
+                    colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                        containerColor = Color.Transparent,
+                        focusedContainerColor = Color.White,
+                        pressedContainerColor = Color.White.copy(alpha = 0.8f)
+                    ),
+                    scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(
+                        scale = 1f,
+                        focusedScale = 1f
+                    )
+                ) {
+                    Box(
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Sign In",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (signInFocused) Color(0xFF1a1a1a) else Color.White
+                        )
+                    }
                 }
             }
         }
@@ -326,23 +347,35 @@ private fun TabButton(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                if (isSelected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.surfaceVariant
-            )
-            .clickable { onClick() }
-            .padding(horizontal = 24.dp, vertical = 12.dp)
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
-            else MaterialTheme.colorScheme.onSurfaceVariant
+    var isFocused by remember { mutableStateOf(false) }
+
+    androidx.tv.material3.Surface(
+        onClick = onClick,
+        modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
+        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(
+            shape = RoundedCornerShape(24.dp)
+        ),
+        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.White,
+            pressedContainerColor = Color.White.copy(alpha = 0.8f)
+        ),
+        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(
+            scale = 1f,
+            focusedScale = 1f
         )
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                color = if (isFocused) Color(0xFF1a1a1a) else Color.White
+            )
+        }
     }
 }
 
