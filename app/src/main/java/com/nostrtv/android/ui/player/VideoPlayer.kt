@@ -16,6 +16,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -33,7 +34,19 @@ fun VideoPlayer(
     val context = LocalContext.current
 
     val exoPlayer = remember {
+        // TV-optimized buffer configuration for smoother playback
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                30_000,  // Min buffer before playback starts (30 seconds)
+                60_000,  // Max buffer to maintain (60 seconds)
+                1_500,   // Playback start threshold
+                3_000    // Rebuffer threshold
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
         ExoPlayer.Builder(context)
+            .setLoadControl(loadControl)
             .build()
             .apply {
                 playWhenReady = true

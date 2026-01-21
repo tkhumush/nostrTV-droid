@@ -50,7 +50,7 @@ class RemoteSignerManager(
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val json = Json { ignoreUnknownKeys = true }
-    private val okHttpClient = OkHttpClient()
+    private val okHttpClient = com.nostrtv.android.data.network.NetworkModule.httpClient
     private val secp256k1 = Secp256k1.get()
     private val secureRandom = SecureRandom()
 

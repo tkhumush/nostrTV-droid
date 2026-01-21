@@ -5,8 +5,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.nostrtv.android.data.auth.RemoteSignerManager
-import com.nostrtv.android.data.auth.SessionStore
+import com.nostrtv.android.data.auth.RemoteSignerManagerProvider
 import com.nostrtv.android.data.nostr.ChatManager
 import com.nostrtv.android.data.nostr.ChatMessage
 import com.nostrtv.android.data.nostr.LiveStream
@@ -30,8 +29,7 @@ class PlayerViewModel(
     }
 
     private val nostrClient = NostrClientProvider.instance
-    private val sessionStore = SessionStore(context)
-    private val remoteSignerManager = RemoteSignerManager(sessionStore)
+    private val remoteSignerManager = RemoteSignerManagerProvider.getInstance(context)
     private val presenceManager = PresenceManager(remoteSignerManager, nostrClient)
     private val chatManager = ChatManager(remoteSignerManager, nostrClient)
     private val zapManager = ZapManager(remoteSignerManager, nostrClient)

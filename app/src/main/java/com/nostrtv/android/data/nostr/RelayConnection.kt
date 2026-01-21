@@ -4,6 +4,7 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -13,7 +14,6 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
-import java.util.concurrent.TimeUnit
 
 class RelayConnection(
     val url: String,
@@ -91,6 +91,10 @@ class RelayConnection(
 
     fun disconnect() {
         Log.d(TAG, "Disconnecting from $url")
+        // Cancel all running coroutines to prevent leaks
+        scope.cancel()
+        // Close the channel to stop any pending receivers
+        _messages.close()
         webSocket?.close(NORMAL_CLOSURE_STATUS, "Client closing")
         webSocket = null
         isConnected = false
@@ -107,14 +111,7 @@ sealed class RelayMessage {
 }
 
 object RelayConnectionFactory {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .pingInterval(30, TimeUnit.SECONDS)
-        .build()
-
     fun create(url: String): RelayConnection {
-        return RelayConnection(url, client)
+        return RelayConnection(url, com.nostrtv.android.data.network.NetworkModule.httpClient)
     }
 }

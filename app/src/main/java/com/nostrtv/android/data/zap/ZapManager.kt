@@ -12,10 +12,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.net.URL
-import java.util.concurrent.TimeUnit
 
 /**
  * ZapManager handles Lightning zaps as per NIP-57.
@@ -45,10 +42,7 @@ class ZapManager(
         )
     }
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
+    private val client = com.nostrtv.android.data.network.NetworkModule.httpClient
 
     private val json = Json { ignoreUnknownKeys = true }
 

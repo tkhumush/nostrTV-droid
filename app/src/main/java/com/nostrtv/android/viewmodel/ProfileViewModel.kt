@@ -6,9 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.nostrtv.android.data.auth.AuthState
-import com.nostrtv.android.data.auth.RemoteSignerManager
-import com.nostrtv.android.data.auth.SessionStore
-import com.nostrtv.android.data.nostr.NostrClient
+import com.nostrtv.android.data.auth.RemoteSignerManagerProvider
+import com.nostrtv.android.data.nostr.NostrClientProvider
 import com.nostrtv.android.data.nostr.Profile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,9 +24,8 @@ class ProfileViewModel(
         private const val TAG = "ProfileViewModel"
     }
 
-    private val sessionStore = SessionStore(context)
-    private val remoteSignerManager = RemoteSignerManager(sessionStore)
-    private val nostrClient = NostrClient()
+    private val remoteSignerManager = RemoteSignerManagerProvider.getInstance(context)
+    private val nostrClient = NostrClientProvider.instance
 
     val authState: StateFlow<AuthState> = remoteSignerManager.authState
     val connectionUri: StateFlow<String?> = remoteSignerManager.connectionUri
@@ -80,21 +78,11 @@ class ProfileViewModel(
 
     /**
      * Fetch the user's profile from relays.
+     * Uses the shared NostrClient which is already connected via HomeViewModel.
      */
     private fun fetchUserProfile(pubkey: String) {
         viewModelScope.launch {
-            // Connect to profile-focused relays
-            Log.d(TAG, "Connecting to relays for profile fetch...")
-            nostrClient.connect(listOf(
-                "wss://purplepag.es",      // Dedicated kind 0 relay
-                "wss://relay.primal.net",
-                "wss://relay.damus.io"
-            ))
-
-            // Wait a moment for connections to establish
-            kotlinx.coroutines.delay(1000)
-
-            // Request profile fetch from relays
+            // Request profile fetch from relays (shared client is already connected)
             Log.d(TAG, "Requesting profile for pubkey: ${pubkey.take(16)}...")
             nostrClient.fetchProfiles(listOf(pubkey))
 
