@@ -3,7 +3,9 @@ package com.nostrtv.android.data.nostr
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,11 +39,15 @@ class NostrClient {
         private const val STREAM_EVENTS_SUB_PREFIX = "stream_"
         private const val FOLLOW_LIST_SUB_PREFIX = "follows_"
 
+        // Memory limits
+        private const val MAX_CHAT_MESSAGES = 500
+        private const val MAX_ZAP_RECEIPTS = 50
+
         // Admin pubkey for curated streams
         const val ADMIN_PUBKEY = "f67a7093fdd829fae5796250cf0932482b1d7f40900110d0d932b5a7fb37755d"
     }
 
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val connections = mutableMapOf<String, RelayConnection>()
 
     private val _streams = MutableStateFlow<List<LiveStream>>(emptyList())
@@ -298,6 +304,10 @@ class NostrClient {
             if (messages.none { it.id == message.id }) {
                 messages.add(message)
                 messages.sortBy { it.createdAt }
+                // Keep only the latest 500 messages to prevent unbounded memory growth
+                while (messages.size > MAX_CHAT_MESSAGES) {
+                    messages.removeAt(0)
+                }
             }
             current + (streamId to messages)
         }
@@ -320,8 +330,8 @@ class NostrClient {
                 if (zaps.none { it.id == zapReceipt.id }) {
                     zaps.add(zapReceipt)
                     zaps.sortByDescending { it.createdAt }
-                    // Keep only the latest 50 zaps
-                    if (zaps.size > 50) {
+                    // Keep only the latest zaps to prevent unbounded memory growth
+                    while (zaps.size > MAX_ZAP_RECEIPTS) {
                         zaps.removeAt(zaps.lastIndex)
                     }
                 }
@@ -516,6 +526,10 @@ class NostrClient {
 
     fun disconnect() {
         Log.d(TAG, "Disconnecting from all relays")
+        // Cancel all running coroutines to prevent leaks
+        scope.cancel()
+        // Recreate scope for potential reconnection
+        scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         connections.values.forEach { it.disconnect() }
         connections.clear()
         connectedCount = 0

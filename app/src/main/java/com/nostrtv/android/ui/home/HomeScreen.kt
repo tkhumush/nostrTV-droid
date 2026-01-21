@@ -60,8 +60,10 @@ fun HomeScreen(
     viewModel: HomeViewModel = viewModel()
 ) {
     val context = LocalContext.current
-    val sessionStore = SessionStore(context)
-    val savedSession = sessionStore.getSavedSession()
+    // Remember SessionStore to avoid recreating on every recomposition
+    // (SessionStore creates EncryptedSharedPreferences with crypto operations)
+    val sessionStore = remember { SessionStore(context) }
+    val savedSession = remember(sessionStore) { sessionStore.getSavedSession() }
     val isLoggedIn = savedSession != null
 
     val selectedTab by viewModel.selectedTab.collectAsState()

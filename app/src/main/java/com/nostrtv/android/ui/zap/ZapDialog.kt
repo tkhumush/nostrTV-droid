@@ -36,10 +36,9 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.qrcode.QRCodeWriter
 import com.nostrtv.android.data.zap.ZapAmount
 import com.nostrtv.android.data.zap.ZapManager
+import com.nostrtv.android.util.QRCodeUtils
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -145,7 +144,7 @@ fun ZapInvoiceDialog(
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     LaunchedEffect(invoice) {
-        qrBitmap = generateQRCode(invoice, 400)
+        qrBitmap = QRCodeUtils.generateQRCodeAsync(invoice, 400)
     }
 
     Box(
@@ -223,26 +222,5 @@ fun ZapInvoiceDialog(
                 Text("Cancel")
             }
         }
-    }
-}
-
-private fun generateQRCode(content: String, size: Int): Bitmap? {
-    return try {
-        val writer = QRCodeWriter()
-        val bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size)
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
-
-        for (x in 0 until size) {
-            for (y in 0 until size) {
-                bitmap.setPixel(
-                    x, y,
-                    if (bitMatrix[x, y]) android.graphics.Color.BLACK
-                    else android.graphics.Color.WHITE
-                )
-            }
-        }
-        bitmap
-    } catch (e: Exception) {
-        null
     }
 }

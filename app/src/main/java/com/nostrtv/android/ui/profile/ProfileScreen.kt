@@ -1,6 +1,5 @@
 package com.nostrtv.android.ui.profile
 
-import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -14,16 +13,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -39,10 +41,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.EncodeHintType
-import com.google.zxing.qrcode.QRCodeWriter
 import com.nostrtv.android.data.auth.AuthState
+import com.nostrtv.android.util.QRCodeUtils
 import com.nostrtv.android.viewmodel.ProfileViewModel
 
 /**
@@ -199,11 +199,14 @@ private fun WaitingForScanContent(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // QR Code
+        // QR Code - generated asynchronously to avoid blocking UI
         if (connectionUri.isNotEmpty()) {
-            val qrBitmap = remember(connectionUri) {
-                generateQRCode(connectionUri, 280)
+            var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+            LaunchedEffect(connectionUri) {
+                qrBitmap = QRCodeUtils.generateQRCodeAsync(connectionUri, 280)
             }
+
             qrBitmap?.let {
                 Box(
                     modifier = Modifier
@@ -385,36 +388,5 @@ private fun ErrorContent(
         Button(onClick = onRetryClick) {
             Text("Try Again")
         }
-    }
-}
-
-/**
- * Generate a QR code bitmap from a string.
- */
-private fun generateQRCode(content: String, size: Int): Bitmap? {
-    return try {
-        val hints = mapOf(
-            EncodeHintType.MARGIN to 0,
-            EncodeHintType.CHARACTER_SET to "UTF-8"
-        )
-        val bitMatrix = QRCodeWriter().encode(
-            content,
-            BarcodeFormat.QR_CODE,
-            size,
-            size,
-            hints
-        )
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        for (x in 0 until size) {
-            for (y in 0 until size) {
-                bitmap.setPixel(
-                    x, y,
-                    if (bitMatrix[x, y]) Color.Black.toArgb() else Color.White.toArgb()
-                )
-            }
-        }
-        bitmap
-    } catch (e: Exception) {
-        null
     }
 }
