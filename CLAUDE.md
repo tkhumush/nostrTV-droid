@@ -480,35 +480,30 @@ Building a **TV-first, decentralized media client**. Proceed incrementally.
 
 ## Session Notes
 
-### Last Session (Jan 19, 2025)
+### Last Session (Jan 30, 2025)
 **Branch:** `main`
-**PRs:** #14, #15 (merged)
+**PRs:** #17 (merged)
 
 **Completed:**
-- Sign-in prompt for unauthenticated interactions (PR #14)
-  - Always show zap button in chyron regardless of auth status
-  - Created SignInPromptOverlay with friendly message
-  - Show prompt when unauthenticated users try to zap or chat
-  - Navigate directly to Profile screen for sign-in
-- Home screen UI redesign (PR #15)
-  - Removed "nostrTV" text from header
-  - Updated tab buttons with transparent bg, white pill focus, dark text
-  - Moved stream cards to bottom in horizontal scrolling row
-  - Added fullscreen background showing focused stream thumbnail
-  - Added crossfade transition when background changes
-  - Added gradient overlay (dark at top for header, fades to transparent)
-  - Added stream title and streamer name above cards (updates on focus)
-  - Reduced card size by 20% with white border
-  - Disabled card scale/glow effects
-- Added README.md for the project
+- Added streaming-focused relays (PR #17)
+  - nos.lol, relay.fountain.fm, relay.divine.video
+- Improved NIP-33 stream deduplication
+  - Fixed deduplication to use pubkey+d-tag per NIP-33 spec
+  - Only replace streams when incoming event is newer (by created_at)
+  - Allows multiple streams from same streamer (different d-tags)
+- Added EoseTimeoutManager for future multi-relay query optimization
+- Added QueryTiming utility for performance measurement
+- Fixed Kotlin compiler I/O timeout issue (corrupted incremental caches)
 
 **Issues Discovered:**
-- None
+- Duplicate events may appear (user noted this seems like a feature)
+- Kotlin incremental compilation caches can become corrupted causing I/O timeouts
+  - Fix: Clear caches with `rm -rf app/build/kotlin && ./gradlew clean`
 
 **Next session should:**
-1. Add screenshots to README.md
-2. Consider fullscreen chat toggle (video expands when chat hidden)
-3. Polish and bug fixes based on hardware testing
+1. Consider fullscreen chat toggle (video expands when chat hidden)
+2. Polish and bug fixes based on hardware testing
+3. Investigate if duplicate events need deduplication or are intentional
 
 ## End of Session Routine
 
