@@ -32,7 +32,10 @@ class NostrClient {
             "wss://relay.snort.social",
             "wss://nostr.wine",
             "wss://relay.primal.net",
-            "wss://purplepag.es"  // Dedicated kind 0 (profile metadata) relay
+            "wss://nos.lol",
+            "wss://relay.fountain.fm",    // Streaming-focused relay (used by zap.stream)
+            "wss://relay.divine.video",   // Streaming-focused relay (used by zap.stream)
+            "wss://purplepag.es"          // Dedicated kind 0 (profile metadata) relay
         )
 
         private const val LIVE_STREAMS_SUB_ID = "live_streams"
@@ -171,10 +174,22 @@ class NostrClient {
         val stream = parseLiveStreamEvent(event)
         if (stream != null) {
             _streams.update { currentList ->
-                val existing = currentList.indexOfFirst { it.id == stream.id }
-                if (existing >= 0) {
-                    currentList.toMutableList().apply { set(existing, stream) }
+                // NIP-33: Replace events with same pubkey + d-tag (parameterized replaceable events)
+                // Only replace if the new event is newer (by created_at timestamp)
+                val existingIndex = currentList.indexOfFirst {
+                    it.pubkey == stream.pubkey && it.dTag == stream.dTag
+                }
+                if (existingIndex >= 0) {
+                    val oldStream = currentList[existingIndex]
+                    if (stream.createdAt >= oldStream.createdAt) {
+                        Log.d(TAG, "Replacing stream: ${stream.dTag} from ${stream.pubkey.take(16)} - status: ${oldStream.status} -> ${stream.status} (newer: ${stream.createdAt} >= ${oldStream.createdAt})")
+                        currentList.toMutableList().apply { set(existingIndex, stream) }
+                    } else {
+                        Log.d(TAG, "Ignoring older stream event: ${stream.dTag} from ${stream.pubkey.take(16)} (${stream.createdAt} < ${oldStream.createdAt})")
+                        currentList // Keep the existing newer stream
+                    }
                 } else {
+                    Log.d(TAG, "Adding new stream: ${stream.dTag} from ${stream.pubkey.take(16)} - status: ${stream.status}")
                     currentList + stream
                 }
             }

@@ -139,20 +139,30 @@ class HomeViewModel : ViewModel() {
                 // Subscribe to live streams and collect updates
                 nostrClient.subscribeToLiveStreams()
                     .collect { streamList ->
-                        Log.d(TAG, "Received ${streamList.size} streams")
+                        Log.d(TAG, "Received ${streamList.size} total stream events from relays")
 
-                        // Filter live streams, sort by most recent, keep only one per pubkey
-                        val dedupedStreams = streamList
+                        // Log all streams for debugging
+                        streamList.forEach { stream ->
+                            Log.d(TAG, "  Stream: ${stream.title.take(30)} | status=${stream.status} | pubkey=${stream.pubkey.take(8)} | d-tag=${stream.dTag.take(16)}")
+                        }
+
+                        // Filter to live streams only and sort by most recent
+                        // Use pubkey+d-tag for deduplication (NIP-33 address) to allow multiple streams per streamer
+                        val liveStreams = streamList
                             .filter { it.status == "live" }
                             .sortedByDescending { it.createdAt }
-                            .distinctBy { it.pubkey }
+                            .distinctBy { "${it.pubkey}:${it.dTag}" }
 
-                        Log.d(TAG, "After dedup: ${dedupedStreams.size} unique streams")
-                        _allStreams.value = dedupedStreams
+                        Log.d(TAG, "After filtering (status=live): ${liveStreams.size} streams")
+                        liveStreams.forEach { stream ->
+                            Log.d(TAG, "  Live: ${stream.title.take(30)} | pubkey=${stream.pubkey.take(8)}")
+                        }
+
+                        _allStreams.value = liveStreams
                         updateFilteredStreams()
 
                         // Fetch profiles for streamers
-                        val pubkeys = dedupedStreams.mapNotNull { it.streamerPubkey }.distinct()
+                        val pubkeys = liveStreams.mapNotNull { it.streamerPubkey }.distinct()
                         nostrClient.fetchProfiles(pubkeys)
                     }
             } catch (e: Exception) {
