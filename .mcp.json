@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "nostrbook": {
+      "command": "npx",
+      "args": ["-y", "@nostrbook/mcp@latest"]
+    },
+    "alby": {
+      "command": "npx",
+      "args": ["-y", "@getalby/mcp"],
+      "env": {
+        "NWC_CONNECTION_STRING": "YOUR_NWC_CONNECTION_STRING_HERE"
+      }
+    },
+    "android-mcp-toolkit": {
+      "command": "npx",
+      "args": ["-y", "android-mcp-toolkit"]
+    }
+  }
+}

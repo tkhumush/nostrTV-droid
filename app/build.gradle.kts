@@ -43,12 +43,12 @@ android {
 
 dependencies {
     // Compose BOM
-    val composeBom = platform("androidx.compose:compose-bom:2024.01.00")
+    val composeBom = platform("androidx.compose:compose-bom:2025.01.01")
     implementation(composeBom)
 
     // Compose for TV
-    implementation("androidx.tv:tv-foundation:1.0.0-alpha10")
-    implementation("androidx.tv:tv-material:1.0.0-alpha10")
+    implementation("androidx.tv:tv-foundation:1.0.0-alpha12")
+    implementation("androidx.tv:tv-material:1.0.1")
 
     // Core Compose
     implementation("androidx.compose.ui:ui")
