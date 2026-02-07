@@ -9,6 +9,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -451,11 +452,11 @@ class NostrClient {
     fun observeChatMessages(streamATag: String): Flow<List<ChatMessage>> {
         val streamKey = streamATag.hashCode().toString()
 
-        return _chatMessages.asStateFlow().map { messagesMap ->
+        return combine(_chatMessages.asStateFlow(), _profiles.asStateFlow()) { messagesMap, profiles ->
             val messages = messagesMap[streamKey] ?: emptyList()
             // Enrich messages with updated profile info
             messages.map { msg ->
-                val profile = _profiles.value[msg.pubkey]
+                val profile = profiles[msg.pubkey]
                 if (profile != null && (msg.authorName != profile.displayNameOrName || msg.authorPicture != profile.picture)) {
                     msg.copy(
                         authorName = profile.displayNameOrName,
@@ -474,11 +475,11 @@ class NostrClient {
     fun observeZapReceipts(streamATag: String): Flow<List<ZapReceipt>> {
         val streamKey = streamATag.hashCode().toString()
 
-        return _zapReceipts.asStateFlow().map { zapsMap ->
+        return combine(_zapReceipts.asStateFlow(), _profiles.asStateFlow()) { zapsMap, profiles ->
             val zaps = zapsMap[streamKey] ?: emptyList()
             // Enrich zaps with updated profile info
             zaps.map { zap ->
-                val profile = zap.senderPubkey?.let { _profiles.value[it] }
+                val profile = zap.senderPubkey?.let { profiles[it] }
                 if (profile != null && (zap.senderName != profile.displayNameOrName || zap.senderPicture != profile.picture)) {
                     zap.copy(
                         senderName = profile.displayNameOrName,
