@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -90,6 +93,7 @@ fun PlayerScreen(
 
     // Local UI state
     var showStreamerProfile by remember { mutableStateOf(false) }
+    var isChatVisible by remember { mutableStateOf(true) }
 
     // Load stream data when provided
     LaunchedEffect(stream) {
@@ -116,10 +120,10 @@ fun PlayerScreen(
             }
     ) {
         Row(modifier = Modifier.fillMaxSize()) {
-            // Video Area (83%)
+            // Video Area (expands when chat hidden)
             Column(
                 modifier = Modifier
-                    .weight(0.83f)
+                    .weight(1f)
                     .fillMaxHeight()
             ) {
                 // Stream Info Header (above video) - clickable
@@ -170,6 +174,24 @@ fun PlayerScreen(
                             )
                         }
                     }
+
+                    // Toggle chat button (top-right of video when chat is hidden)
+                    if (!isChatVisible) {
+                        IconButton(
+                            onClick = { isChatVisible = true },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp)
+                                .size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Visibility,
+                                contentDescription = "Show chat",
+                                tint = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                 }
 
                 // Zap Chyron Footer (below video)
@@ -180,16 +202,23 @@ fun PlayerScreen(
                 )
             }
 
-            // Chat Area (17%)
-            ChatPanel(
-                messages = chatMessages,
-                onSendMessage = { message ->
-                    viewModel.sendChatMessage(message)
-                },
-                modifier = Modifier
-                    .weight(0.17f)
-                    .fillMaxHeight()
-            )
+            // Chat Area (collapses when hidden)
+            AnimatedVisibility(
+                visible = isChatVisible,
+                enter = expandHorizontally(expandFrom = Alignment.Start),
+                exit = shrinkHorizontally(shrinkTowards = Alignment.Start)
+            ) {
+                ChatPanel(
+                    messages = chatMessages,
+                    onSendMessage = { message ->
+                        viewModel.sendChatMessage(message)
+                    },
+                    onHideChat = { isChatVisible = false },
+                    modifier = Modifier
+                        .width(300.dp)
+                        .fillMaxHeight()
+                )
+            }
         }
 
         // Zap Flow Overlay
@@ -328,10 +357,10 @@ fun StreamInfoHeader(
 fun ChatPanel(
     messages: List<ChatMessage>,
     onSendMessage: (String) -> Unit,
+    onHideChat: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
-    var showMessages by remember { mutableStateOf(true) }
     var messageText by remember { mutableStateOf("") }
 
     // Auto-scroll to bottom when new messages arrive
@@ -345,48 +374,42 @@ fun ChatPanel(
         modifier = modifier
             .background(Color.Black.copy(alpha = 0.9f))
     ) {
-        // Chat Header with hide/show button
+        // Chat Header with hide button
         ChatHeader(
-            showMessages = showMessages,
-            onToggleMessages = { showMessages = !showMessages },
+            onHideChat = onHideChat,
             modifier = Modifier.fillMaxWidth()
         )
 
-        // Chat Message List (hideable)
-        if (showMessages) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp)
-            ) {
-                if (messages.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "No messages yet",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.5f)
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        reverseLayout = true,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        items(messages, key = { it.id }) { message ->
-                            ChatMessageItem(message)
-                        }
+        // Chat Message List
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp)
+        ) {
+            if (messages.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No messages yet",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.5f)
+                    )
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    reverseLayout = true,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(messages, key = { it.id }) { message ->
+                        ChatMessageItem(message)
                     }
                 }
             }
-        } else {
-            // Collapsed state - just show a spacer
-            Spacer(modifier = Modifier.weight(1f))
         }
 
         // Chat Footer with input controls
@@ -408,8 +431,7 @@ fun ChatPanel(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun ChatHeader(
-    showMessages: Boolean,
-    onToggleMessages: () -> Unit,
+    onHideChat: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -426,12 +448,12 @@ fun ChatHeader(
         )
 
         IconButton(
-            onClick = onToggleMessages,
+            onClick = onHideChat,
             modifier = Modifier.size(32.dp)
         ) {
             Icon(
-                imageVector = if (showMessages) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                contentDescription = if (showMessages) "Hide chat" else "Show chat",
+                imageVector = Icons.Default.VisibilityOff,
+                contentDescription = "Hide chat",
                 tint = Color.White.copy(alpha = 0.7f),
                 modifier = Modifier.size(18.dp)
             )
