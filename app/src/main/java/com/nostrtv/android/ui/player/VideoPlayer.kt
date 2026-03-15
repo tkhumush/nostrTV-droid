@@ -16,12 +16,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import okhttp3.OkHttpClient
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -59,11 +60,13 @@ fun VideoPlayer(
             try {
                 val mediaItem = MediaItem.fromUri(streamUrl)
 
+                // Use OkHttp data source for robust SSL handling
+                val okHttpDataSourceFactory = OkHttpDataSource.Factory(OkHttpClient())
+
                 // Use HLS source for .m3u8 streams
                 if (streamUrl.contains(".m3u8")) {
-                    val hlsSource = HlsMediaSource.Factory(
-                        androidx.media3.datasource.DefaultHttpDataSource.Factory()
-                    ).createMediaSource(mediaItem)
+                    val hlsSource = HlsMediaSource.Factory(okHttpDataSourceFactory)
+                        .createMediaSource(mediaItem)
                     exoPlayer.setMediaSource(hlsSource)
                 } else {
                     exoPlayer.setMediaItem(mediaItem)

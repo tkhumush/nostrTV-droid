@@ -136,33 +136,54 @@ class HomeViewModel : ViewModel() {
                 // Connect to relays
                 nostrClient.connect()
 
+                // Subscribe to deletion events
+                nostrClient.subscribeToDeletions()
+
                 // Subscribe to live streams and collect updates
                 nostrClient.subscribeToLiveStreams()
                     .collect { streamList ->
                         Log.d(TAG, "Received ${streamList.size} total stream events from relays")
 
-                        // Log all streams for debugging
-                        streamList.forEach { stream ->
-                            Log.d(TAG, "  Stream: ${stream.title.take(30)} | status=${stream.status} | pubkey=${stream.pubkey.take(8)} | d-tag=${stream.dTag.take(16)}")
-                        }
+                        // === ZAP.STREAM FILTERING PIPELINE ===
 
-                        // Filter to live streams only and sort by most recent
-                        // Use pubkey+d-tag for deduplication (NIP-33 address) to allow multiple streams per streamer
-                        val liveStreams = streamList
-                            .filter { it.status == "live" }
+                        // Step 1: Age filter — discard events older than 24 hours
+                        val ageFiltered = streamList.filter {
+                            NostrClient.isWithinAgeWindow(it)
+                        }
+                        Log.d(TAG, "After age filter (24h): ${ageFiltered.size} streams (dropped ${streamList.size - ageFiltered.size})")
+
+                        // Step 2: Playability filter — must have valid .m3u8 streaming URL
+                        val playable = ageFiltered.filter {
+                            NostrClient.canPlayEvent(it)
+                        }
+                        Log.d(TAG, "After playability filter: ${playable.size} streams (dropped ${ageFiltered.size - playable.size})")
+
+                        // Step 3: NIP-33 deduplication (pubkey + d-tag, keep newest)
+                        val deduplicated = playable
                             .sortedByDescending { it.createdAt }
                             .distinctBy { "${it.pubkey}:${it.dTag}" }
 
-                        Log.d(TAG, "After filtering (status=live): ${liveStreams.size} streams")
-                        liveStreams.forEach { stream ->
-                            Log.d(TAG, "  Live: ${stream.title.take(30)} | pubkey=${stream.pubkey.take(8)}")
-                        }
+                        // Step 4: Bucket by status
+                        val live = deduplicated
+                            .filter { it.status == "live" }
+                            .sortedByDescending { it.startsAt ?: it.createdAt }
 
-                        _allStreams.value = liveStreams
+                        val ended = deduplicated
+                            .filter { it.status == "ended" && it.recording.isNotBlank() }
+                            .sortedByDescending { it.createdAt }
+
+                        val planned = deduplicated
+                            .filter { it.status == "planned" }
+                            .sortedByDescending { it.startsAt ?: it.createdAt }
+
+                        Log.d(TAG, "Bucketed: ${live.size} live, ${ended.size} ended (with recording), ${planned.size} planned")
+
+                        // Store the filtered live streams as the base for curated/following
+                        _allStreams.value = live
                         updateFilteredStreams()
 
-                        // Fetch profiles for streamers
-                        val pubkeys = liveStreams.mapNotNull { it.streamerPubkey }.distinct()
+                        // Fetch profiles for all live streamers
+                        val pubkeys = live.mapNotNull { it.streamerPubkey }.distinct()
                         nostrClient.fetchProfiles(pubkeys)
                     }
             } catch (e: Exception) {
