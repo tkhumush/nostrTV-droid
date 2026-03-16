@@ -49,6 +49,42 @@ class NostrClient {
 
         // Admin pubkey for curated streams
         const val ADMIN_PUBKEY = "f67a7093fdd829fae5796250cf0932482b1d7f40900110d0d932b5a7fb37755d"
+
+        /** Maximum age for stream events (24 hours) */
+        private const val MAX_STREAM_AGE_SECONDS = 24 * 60 * 60L
+
+        private const val DELETIONS_SUB_ID = "stream_deletions"
+
+        /**
+         * Check if a URL is a playable stream URL.
+         * Matches zap.stream's canPlayUrl(): must be .m3u8 or moq: protocol.
+         */
+        fun canPlayUrl(url: String): Boolean {
+            if (url.isBlank()) return false
+            if (url.contains("localhost") || url.contains("127.0.0.1")) return false
+            return try {
+                val uri = java.net.URI(url)
+                uri.path?.contains(".m3u8") == true || uri.scheme == "moq"
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        /**
+         * Check if a stream event has a playable URL.
+         * Matches zap.stream's canPlayEvent().
+         */
+        fun canPlayEvent(stream: LiveStream): Boolean {
+            return canPlayUrl(stream.streamingUrl) || canPlayUrl(stream.recording)
+        }
+
+        /**
+         * Check if a stream event is within the acceptable age window (24 hours).
+         */
+        fun isWithinAgeWindow(stream: LiveStream): Boolean {
+            val now = System.currentTimeMillis() / 1000
+            return stream.createdAt > (now - MAX_STREAM_AGE_SECONDS)
+        }
     }
 
     private var scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -59,6 +95,7 @@ class NostrClient {
     private val _chatMessages = MutableStateFlow<Map<String, List<ChatMessage>>>(emptyMap())
     private val _zapReceipts = MutableStateFlow<Map<String, List<ZapReceipt>>>(emptyMap())
     private val _followLists = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    private val _deletedStreamAddresses = MutableStateFlow<Set<String>>(emptySet())
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: Flow<ConnectionState> = _connectionState.asStateFlow()
@@ -148,6 +185,7 @@ class NostrClient {
     private fun handleEvent(subscriptionId: String, event: NostrEvent) {
         when (event.kind) {
             NostrProtocol.KIND_LIVE_EVENT -> handleLiveStreamEvent(event)
+            NostrProtocol.KIND_DELETE -> handleDeletionEvent(event)
             NostrProtocol.KIND_METADATA -> handleProfileEvent(event)
             NostrProtocol.KIND_CONTACTS -> {
                 // Follow list (kind 3)
@@ -174,6 +212,12 @@ class NostrClient {
 
         val stream = parseLiveStreamEvent(event)
         if (stream != null) {
+            // Skip if this stream has been deleted
+            if (stream.aTag in _deletedStreamAddresses.value) {
+                Log.d(TAG, "Skipping deleted stream: ${stream.aTag}")
+                return
+            }
+
             _streams.update { currentList ->
                 // NIP-33: Replace events with same pubkey + d-tag (parameterized replaceable events)
                 // Only replace if the new event is newer (by created_at timestamp)
@@ -206,6 +250,8 @@ class NostrClient {
             val streamingUrl = event.getTagValue("streaming") ?: ""
             val thumbnailUrl = event.getTagValue("image") ?: event.getTagValue("thumb") ?: ""
             val streamerPubkey = event.getTagValue("p") ?: event.pubkey
+            val recording = event.getTagValue("recording") ?: ""
+            val startsAt = event.getTagValue("starts")?.toLongOrNull()
 
             // Parse current viewers if available
             val currentParticipants = event.getTagValue("current_participants")?.toIntOrNull() ?: 0
@@ -227,7 +273,9 @@ class NostrClient {
                 streamerPubkey = streamerPubkey,
                 viewerCount = currentParticipants,
                 tags = tags,
+                startsAt = startsAt,
                 relays = relays,
+                recording = recording,
                 dTag = dTag,
                 createdAt = event.createdAt
             )
@@ -275,6 +323,39 @@ class NostrClient {
         val followedPubkeys = event.getAllTags("p").mapNotNull { it.getOrNull(1) }.toSet()
         Log.d(TAG, "Follow list contains ${followedPubkeys.size} pubkeys")
         _followLists.update { it + (event.pubkey to followedPubkeys) }
+    }
+
+    private fun handleDeletionEvent(event: NostrEvent) {
+        // Check for "a" tags referencing live streams (30311:pubkey:d-tag)
+        // Only process deletions where the event author matches the stream pubkey
+        val deletedAddresses = event.getTagValues("a")
+            .filter { it.startsWith("30311:") && it.contains(event.pubkey) }
+            .toSet()
+
+        if (deletedAddresses.isNotEmpty()) {
+            Log.d(TAG, "Stream deletion event from ${event.pubkey.take(16)}: $deletedAddresses")
+            _deletedStreamAddresses.update { it + deletedAddresses }
+
+            // Remove deleted streams from active streams
+            _streams.update { currentList ->
+                currentList.filter { stream -> stream.aTag !in deletedAddresses }
+            }
+        }
+    }
+
+    /**
+     * Subscribe to deletion events (kind 5) that reference live stream events.
+     * Matches zap.stream's deletion event handling.
+     */
+    fun subscribeToDeletions() {
+        Log.d(TAG, "Subscribing to stream deletion events (kind 5)")
+        val filter = NostrFilter(
+            kinds = listOf(NostrProtocol.KIND_DELETE),
+            tags = mapOf("k" to listOf(NostrProtocol.KIND_LIVE_EVENT.toString())),
+            limit = 100
+        )
+        val subscriptionMessage = NostrProtocol.createSubscription(DELETIONS_SUB_ID, filter)
+        broadcast(subscriptionMessage)
     }
 
     fun fetchFollowList(pubkey: String) {

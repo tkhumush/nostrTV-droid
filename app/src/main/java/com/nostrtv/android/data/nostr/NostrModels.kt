@@ -1,5 +1,15 @@
 package com.nostrtv.android.data.nostr
 
+enum class StreamState(val value: String) {
+    Live("live"),
+    Ended("ended"),
+    Planned("planned");
+
+    companion object {
+        fun fromString(s: String?): StreamState? = entries.find { it.value == s }
+    }
+}
+
 data class LiveStream(
     val id: String,
     val pubkey: String,
@@ -15,6 +25,7 @@ data class LiveStream(
     val startsAt: Long? = null,
     val endsAt: Long? = null,
     val relays: List<String> = emptyList(),
+    val recording: String = "",
     val dTag: String = "",
     val createdAt: Long = 0
 ) {
